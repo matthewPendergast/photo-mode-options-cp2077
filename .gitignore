@@ -3,3 +3,4 @@ config.lua
 db.sqlite3
 *.log
 roadmap.txt
+testingGround.lua
