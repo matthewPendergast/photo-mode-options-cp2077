@@ -20,6 +20,7 @@ local menuController = {
         setHeadWeight = nil,
         setChestSuppress = nil,
         setChestWeight = nil,
+        lookAtCamera = nil,
         initialized = false,
     }
 }
@@ -102,13 +103,12 @@ end
 
 ---@param photoModeController gameuiPhotoModeMenuController
 local function CycleLookAtCamera(photoModeController)
-    local lookAtCameraMenuItem = photoModeController:GetMenuItem(menuController.attributeKey.lookAtCamera)
     for i = 0, 1 do
-        lookAtCameraMenuItem.OptionSelector:Prior()
-        lookAtCameraMenuItem.OptionLabelRef:SetText(lookAtCameraMenuItem.OptionSelector.values[2])
-        lookAtCameraMenuItem:StartArrowClickedEffect(lookAtCameraMenuItem.LeftArrow)
+        menuController.menuItem.lookAtCamera.OptionSelector:Prior()
+        menuController.menuItem.lookAtCamera.OptionLabelRef:SetText(menuController.menuItem.lookAtCamera.OptionSelector.values[2])
+        menuController.menuItem.lookAtCamera:StartArrowClickedEffect(menuController.menuItem.lookAtCamera.LeftArrow)
         photoModeController:OnAttributeUpdated(menuController.attributeKey.lookAtCamera, i, true)
-        lookAtCameraMenuItem:OnSliderHandleReleased()
+        menuController.menuItem.lookAtCamera:OnSliderHandleReleased()
     end
 end
 
@@ -131,6 +131,7 @@ registerForEvent('onInit', function()
     function(this, reversedUI, wrappedMethod)
         local result = wrappedMethod(reversedUI)
         AssignMenuItems(this)
+        menuController.menuItem.lookAtCamera = this:GetMenuItem(menuController.attributeKey.lookAtCamera)
 
         -- Setup MenuItems
         SetupOptionSelector(menuController.menuItem.lockLookAtCamera, this, false, localizable.optionSelectorValues.lockLookAtCamera)
@@ -155,6 +156,8 @@ registerForEvent('onInit', function()
         if menuController.menuItem.initialized then
             -- If 'Look At Camera' is changed
             if attributeKey == menuController.attributeKey.lookAtCamera then
+                -- Necessary to fix issue with indexing and attributeValue becoming decoupled during initialization
+                menuController.menuItem.lookAtCamera.OptionSelector:SetCurrIndex(attributeValue)
                 if attributeValue == 1 then
                     SetLookAtPresetVisibility(true)
                     this:GetChildWidgetByPath(PMO.modules.data.widgetPath[1]):SetHeight(1000.0)
@@ -193,6 +196,20 @@ registerForEvent('onInit', function()
                 TweakDB:SetFlat(PMO.modules.data.preset[4], menuController.menuItem.setChestWeight:GetSliderValue())
                 CycleLookAtCamera(this)
             end
+        end
+    end)
+
+    ObserveAfter("gameuiPhotoModeMenuController", "OnAnimationEnded",
+    ---@param this gameuiPhotoModeMenuController
+    ---@param animationType Uint32
+    function(this, animationType)
+        -- Revert Look At setting if active upon exiting Photo Mode
+        if menuController.menuItem.lookAtCamera:GetSelectedOptionIndex() == 1 and animationType == 0 then
+            menuController.menuItem.lookAtCamera.OptionSelector:SetCurrIndex(0)
+            menuController.menuItem.lookAtCamera.OptionLabelRef:SetText(menuController.menuItem.lookAtCamera.OptionSelector.values[1])
+            menuController.menuItem.lookAtCamera:StartArrowClickedEffect(menuController.menuItem.lookAtCamera.LeftArrow)
+            this:OnAttributeUpdated(menuController.attributeKey.lookAtCamera, 0, true)
+            menuController.menuItem.lookAtCamera:OnSliderHandleReleased()
         end
     end)
 end)
