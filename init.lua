@@ -13,6 +13,7 @@ local menuController = {
         setChestSuppress = 9103,
         setChestWeight = 9104,
         lookAtCamera = 15,
+        dofEnabled = 26,
     },
     menuItem = {
         lockLookAtCamera = nil,
@@ -41,6 +42,13 @@ local localizable = {
 
 local menuItemKeys = {
     'lockLookAtCamera', 'setHeadSuppress', 'setHeadWeight', 'setChestSuppress', 'setChestWeight',
+}
+
+local state = {
+    dof = {
+        isInitialized = false,
+        isFinalized = false,
+    },
 }
 
 -- Menu Controller Functions --
@@ -130,18 +138,26 @@ registerForEvent('onInit', function()
     Override('gameuiPhotoModeMenuController', 'OnShow',
     function(this, reversedUI, wrappedMethod)
         local result = wrappedMethod(reversedUI)
+
+        -- Store persistent Menu Item data
         AssignMenuItems(this)
         menuController.menuItem.lookAtCamera = this:GetMenuItem(menuController.attributeKey.lookAtCamera)
 
-        -- Setup MenuItems
+        -- Setup Menu Items
         SetupOptionSelector(menuController.menuItem.lockLookAtCamera, this, false, localizable.optionSelectorValues.lockLookAtCamera)
         SetupScrollBar(menuController.menuItem.setHeadSuppress, this, false, 0.0, 1.0, .01)
         SetupScrollBar(menuController.menuItem.setHeadWeight, this, false, 0.0, 1.0, .01)
         SetupScrollBar(menuController.menuItem.setChestSuppress, this, false, 0.0, 1.0, .01)
         SetupScrollBar(menuController.menuItem.setChestWeight, this, false, 0.0, 0.5, .01)
 
+        -- Reset Depth of Field state checks
+        state.dof.isFinalized = false
+        state.dof.isInitialized = false
+
+        -- Setup UI
         SetLookAtPresetVisibility(false)
         this:GetChildWidgetByPath(PMO.modules.data.widgetPath[1]):SetHeight(600.0)
+
         menuController.menuItem.initialized = true
         return result
     end)
@@ -154,6 +170,10 @@ registerForEvent('onInit', function()
     ObserveAfter('gameuiPhotoModeMenuController', 'OnAttributeUpdated',
     function(this, attributeKey, attributeValue, doApply)
         if menuController.menuItem.initialized then
+            -- Activates after game has finished setting up Depth of Field
+            if attributeKey == menuController.attributeKey.dofEnabled and not state.dof.isFinalized then
+                state.dof.isInitialized = true
+            end
             -- If 'Look At Camera' is changed
             if attributeKey == menuController.attributeKey.lookAtCamera then
                 -- Necessary to fix issue with indexing and attributeValue becoming decoupled during initialization
@@ -199,17 +219,25 @@ registerForEvent('onInit', function()
         end
     end)
 
-    ObserveAfter("gameuiPhotoModeMenuController", "OnAnimationEnded",
-    ---@param this gameuiPhotoModeMenuController
-    ---@param animationType Uint32
-    function(this, animationType)
-        -- Revert Look At setting if active upon exiting Photo Mode
-        if menuController.menuItem.lookAtCamera:GetSelectedOptionIndex() == 1 and animationType == 0 then
+    ObserveAfter('gameuiPhotoModeMenuController', 'OnIntroAnimEnded',
+    function(this, e)
+        if menuController.menuItem.lookAtCamera:GetSelectedOptionIndex() == 1 then
             menuController.menuItem.lookAtCamera.OptionSelector:SetCurrIndex(0)
             menuController.menuItem.lookAtCamera.OptionLabelRef:SetText(menuController.menuItem.lookAtCamera.OptionSelector.values[1])
             menuController.menuItem.lookAtCamera:StartArrowClickedEffect(menuController.menuItem.lookAtCamera.LeftArrow)
             this:OnAttributeUpdated(menuController.attributeKey.lookAtCamera, 0, true)
             menuController.menuItem.lookAtCamera:OnSliderHandleReleased()
+        end
+    end)
+    
+    Observe('gameuiPhotoModeMenuController', 'GetCurrentSelectedMenuListItem',
+    function(this)
+        if menuController.menuItem.initialized and state.dof.isInitialized and not state.dof.isFinalized then
+            state.dof.isFinalized = true
+            local dofMenuItem = this:GetMenuItem(menuController.attributeKey.dofEnabled)
+            dofMenuItem.OptionSelector:SetCurrIndex(0)
+            this:OnAttributeUpdated(menuController.attributeKey.dofEnabled, 0, true)
+            dofMenuItem:OnSliderHandleReleased()
         end
     end)
 end)
