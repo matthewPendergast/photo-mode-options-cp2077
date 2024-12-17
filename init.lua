@@ -12,6 +12,7 @@ local menuController = {
         setHeadWeight = 9102,
         setChestSuppress = 9103,
         setChestWeight = 9104,
+        transitionSpeed = 9105,
         lookAtCamera = 15,
         dofEnabled = 26,
     },
@@ -21,6 +22,7 @@ local menuController = {
         setHeadWeight = nil,
         setChestSuppress = nil,
         setChestWeight = nil,
+        transitionSpeed = nil,
         lookAtCamera = nil,
         initialized = false,
     }
@@ -28,11 +30,12 @@ local menuController = {
 
 local localizable = {
     menuItem = {
-        lockLookAtCamera = '- Lock \'Look At Camera\'',
-        setHeadSuppress = '- Set Head Suppress',
-        setHeadWeight = '- Set Head Weight',
-        setChestSuppress = '- Set Chest Suppress',
-        setChestWeight = '- Set Chest Weight',
+        lockLookAtCamera = 'Lock \'Look At Camera\'',
+        setHeadSuppress = 'Set Head Suppress',
+        setHeadWeight = 'Set Head Weight',
+        setChestSuppress = 'Set Chest Suppress',
+        setChestWeight = 'Set Chest Weight',
+        transitionSpeed = 'Transition Speed',
     },
     optionSelectorValues = {
         lockLookAtCamera = { 'Unlocked', 'Locked' },
@@ -41,7 +44,7 @@ local localizable = {
 }
 
 local menuItemKeys = {
-    'lockLookAtCamera', 'setHeadSuppress', 'setHeadWeight', 'setChestSuppress', 'setChestWeight',
+    'lockLookAtCamera', 'setHeadSuppress', 'setHeadWeight', 'setChestSuppress', 'setChestWeight', 'transitionSpeed',
 }
 
 local state = {
@@ -88,17 +91,18 @@ end
 ---@param menuItem PhotoModeMenuListItem
 ---@param photoModeController gameuiPhotoModeMenuController
 ---@param isVisible boolean
+---@param startVal float
 ---@param minVal float
 ---@param maxVal float
 ---@param step float
-local function SetupScrollBar(menuItem, photoModeController, isVisible, minVal, maxVal, step)
+local function SetupScrollBar(menuItem, photoModeController, isVisible, startVal, minVal, maxVal, step)
     menuItem.photoModeController = photoModeController
     menuItem:GetRootWidget():SetVisible(isVisible)
     menuItem.GridRoot:SetVisible(false)
     menuItem.OptionSelectorRef:SetVisible(false)
     menuItem.ScrollBarRef:SetVisible(true)
     menuItem:SetIsEnabled(true)
-    menuItem:SetupScrollBar(0, minVal, maxVal, step, false)
+    menuItem:SetupScrollBar(startVal, minVal, maxVal, step, false)
 end
 
 local function SetLookAtPresetVisibility(boolean)
@@ -107,6 +111,7 @@ local function SetLookAtPresetVisibility(boolean)
     menuController.menuItem.setHeadWeight:GetRootWidget():SetVisible(boolean)
     menuController.menuItem.setChestSuppress:GetRootWidget():SetVisible(boolean)
     menuController.menuItem.setChestWeight:GetRootWidget():SetVisible(boolean)
+    menuController.menuItem.transitionSpeed:GetRootWidget():SetVisible(boolean)
 end
 
 ---@param photoModeController gameuiPhotoModeMenuController
@@ -124,6 +129,9 @@ end
 
 registerForEvent('onTweak', function()
     TweakDB:SetFlat(PMO.modules.data.attributes[1], PMO.modules.config.aperture)
+    TweakDB:SetFlat(PMO.modules.data.preset[1], 360.0)
+    TweakDB:SetFlat(PMO.modules.data.preset[2], 360.0)
+    TweakDB:SetFlat(PMO.modules.data.preset[3], 360.0)
 end)
 
 registerForEvent('onInit', function()
@@ -145,10 +153,11 @@ registerForEvent('onInit', function()
 
         -- Setup Menu Items
         SetupOptionSelector(menuController.menuItem.lockLookAtCamera, this, false, localizable.optionSelectorValues.lockLookAtCamera)
-        SetupScrollBar(menuController.menuItem.setHeadSuppress, this, false, 0.0, 1.0, .01)
-        SetupScrollBar(menuController.menuItem.setHeadWeight, this, false, 0.0, 1.0, .01)
-        SetupScrollBar(menuController.menuItem.setChestSuppress, this, false, 0.0, 1.0, .01)
-        SetupScrollBar(menuController.menuItem.setChestWeight, this, false, 0.0, 0.5, .01)
+        SetupScrollBar(menuController.menuItem.setHeadSuppress, this, false, 0.0, 0.0, 1.0, .01)
+        SetupScrollBar(menuController.menuItem.setHeadWeight, this, false, 0.0, 0.0, 1.0, .01)
+        SetupScrollBar(menuController.menuItem.setChestSuppress, this, false, 0.0, 0.0, 1.0, .01)
+        SetupScrollBar(menuController.menuItem.setChestWeight, this, false, 0.0, 0.0, 0.5, .01)
+        SetupScrollBar(menuController.menuItem.transitionSpeed, this, false, 70.0, 1.0, 140.0, 1.0)
 
         -- Reset Depth of Field state checks
         state.dof.isFinalized = false
@@ -180,7 +189,7 @@ registerForEvent('onInit', function()
                 menuController.menuItem.lookAtCamera.OptionSelector:SetCurrIndex(attributeValue)
                 if attributeValue == 1 then
                     SetLookAtPresetVisibility(true)
-                    this:GetChildWidgetByPath(PMO.modules.data.widgetPath[1]):SetHeight(1000.0)
+                    this:GetChildWidgetByPath(PMO.modules.data.widgetPath[1]):SetHeight(1100.0)
                 elseif attributeValue == 0 then
                     SetLookAtPresetVisibility(false)
                     this:GetChildWidgetByPath(PMO.modules.data.widgetPath[1]):SetHeight(600.0)
@@ -201,19 +210,24 @@ registerForEvent('onInit', function()
             end
             -- If Preset values are updated
             if attributeKey == menuController.attributeKey.setHeadSuppress then
-                TweakDB:SetFlat(PMO.modules.data.preset[1], menuController.menuItem.setHeadSuppress:GetSliderValue())
+                TweakDB:SetFlat(PMO.modules.data.preset[4], menuController.menuItem.setHeadSuppress:GetSliderValue())
                 CycleLookAtCamera(this)
             end
             if attributeKey == menuController.attributeKey.setHeadWeight then
-                TweakDB:SetFlat(PMO.modules.data.preset[2], menuController.menuItem.setHeadWeight:GetSliderValue())
+                TweakDB:SetFlat(PMO.modules.data.preset[5], menuController.menuItem.setHeadWeight:GetSliderValue())
                 CycleLookAtCamera(this)
             end
             if attributeKey == menuController.attributeKey.setChestSuppress then
-                TweakDB:SetFlat(PMO.modules.data.preset[3], menuController.menuItem.setChestSuppress:GetSliderValue())
+                TweakDB:SetFlat(PMO.modules.data.preset[6], menuController.menuItem.setChestSuppress:GetSliderValue())
                 CycleLookAtCamera(this)
             end
             if attributeKey == menuController.attributeKey.setChestWeight then
-                TweakDB:SetFlat(PMO.modules.data.preset[4], menuController.menuItem.setChestWeight:GetSliderValue())
+                TweakDB:SetFlat(PMO.modules.data.preset[7], menuController.menuItem.setChestWeight:GetSliderValue())
+                CycleLookAtCamera(this)
+            end
+            if attributeKey == menuController.attributeKey.transitionSpeed then
+                TweakDB:SetFlat(PMO.modules.data.preset[8], menuController.menuItem.transitionSpeed:GetSliderValue())
+                TweakDB:SetFlat(PMO.modules.data.preset[9], menuController.menuItem.transitionSpeed:GetSliderValue())
                 CycleLookAtCamera(this)
             end
         end
