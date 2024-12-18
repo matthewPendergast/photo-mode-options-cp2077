@@ -15,6 +15,7 @@ local menuController = {
         transitionSpeed = 9105,
         lookAtCamera = 15,
         dofEnabled = 26,
+        collision = 39,
     },
     menuItem = {
         lockLookAtCamera = nil,
@@ -102,7 +103,7 @@ local function SetupScrollBar(menuItem, photoModeController, isVisible, startVal
     menuItem.OptionSelectorRef:SetVisible(false)
     menuItem.ScrollBarRef:SetVisible(true)
     menuItem:SetIsEnabled(true)
-    menuItem:SetupScrollBar(startVal, minVal, maxVal, step, false)
+    menuItem:SetupScrollBar(startVal, minVal, maxVal, step, true)
 end
 
 local function SetLookAtPresetVisibility(boolean)
@@ -128,10 +129,18 @@ end
 -- CET Event Handling --
 
 registerForEvent('onTweak', function()
+    -- Set full functionality for base Idle/Action poses
+    for _, poseName in ipairs(PMO.modules.data.photoModePoses) do
+        TweakDB:SetFlat(poseName .. PMO.modules.data.poseAttributes[1], true)
+        TweakDB:SetFlat(poseName .. PMO.modules.data.poseAttributes[2], {CName'None'})
+        TweakDB:SetFlat(poseName .. PMO.modules.data.poseAttributes[3], {CName'None'})
+        TweakDB:SetFlat(poseName .. PMO.modules.data.poseAttributes[4], CName(PMO.modules.data.preset[1]))
+        TweakDB:SetFlat(poseName .. PMO.modules.data.poseAttributes[5], PMO.modules.data.poseValues[1])
+    end
     TweakDB:SetFlat(PMO.modules.data.attributes[1], PMO.modules.config.aperture)
-    TweakDB:SetFlat(PMO.modules.data.preset[1], 360.0)
     TweakDB:SetFlat(PMO.modules.data.preset[2], 360.0)
     TweakDB:SetFlat(PMO.modules.data.preset[3], 360.0)
+    TweakDB:SetFlat(PMO.modules.data.preset[4], 360.0)
 end)
 
 registerForEvent('onInit', function()
@@ -156,7 +165,7 @@ registerForEvent('onInit', function()
         SetupScrollBar(menuController.menuItem.setHeadSuppress, this, false, 0.0, 0.0, 1.0, .01)
         SetupScrollBar(menuController.menuItem.setHeadWeight, this, false, 0.0, 0.0, 1.0, .01)
         SetupScrollBar(menuController.menuItem.setChestSuppress, this, false, 0.0, 0.0, 1.0, .01)
-        SetupScrollBar(menuController.menuItem.setChestWeight, this, false, 0.0, 0.0, 0.5, .01)
+        SetupScrollBar(menuController.menuItem.setChestWeight, this, false, 0.0, 0.0, 0.5, .005)
         SetupScrollBar(menuController.menuItem.transitionSpeed, this, false, 70.0, 1.0, 140.0, 1.0)
 
         -- Reset Depth of Field state checks
@@ -210,24 +219,24 @@ registerForEvent('onInit', function()
             end
             -- If Preset values are updated
             if attributeKey == menuController.attributeKey.setHeadSuppress then
-                TweakDB:SetFlat(PMO.modules.data.preset[4], menuController.menuItem.setHeadSuppress:GetSliderValue())
+                TweakDB:SetFlat(PMO.modules.data.preset[5], menuController.menuItem.setHeadSuppress:GetSliderValue())
                 CycleLookAtCamera(this)
             end
             if attributeKey == menuController.attributeKey.setHeadWeight then
-                TweakDB:SetFlat(PMO.modules.data.preset[5], menuController.menuItem.setHeadWeight:GetSliderValue())
+                TweakDB:SetFlat(PMO.modules.data.preset[6], menuController.menuItem.setHeadWeight:GetSliderValue())
                 CycleLookAtCamera(this)
             end
             if attributeKey == menuController.attributeKey.setChestSuppress then
-                TweakDB:SetFlat(PMO.modules.data.preset[6], menuController.menuItem.setChestSuppress:GetSliderValue())
+                TweakDB:SetFlat(PMO.modules.data.preset[7], menuController.menuItem.setChestSuppress:GetSliderValue())
                 CycleLookAtCamera(this)
             end
             if attributeKey == menuController.attributeKey.setChestWeight then
-                TweakDB:SetFlat(PMO.modules.data.preset[7], menuController.menuItem.setChestWeight:GetSliderValue())
+                TweakDB:SetFlat(PMO.modules.data.preset[8], menuController.menuItem.setChestWeight:GetSliderValue())
                 CycleLookAtCamera(this)
             end
             if attributeKey == menuController.attributeKey.transitionSpeed then
-                TweakDB:SetFlat(PMO.modules.data.preset[8], menuController.menuItem.transitionSpeed:GetSliderValue())
                 TweakDB:SetFlat(PMO.modules.data.preset[9], menuController.menuItem.transitionSpeed:GetSliderValue())
+                TweakDB:SetFlat(PMO.modules.data.preset[10], menuController.menuItem.transitionSpeed:GetSliderValue())
                 CycleLookAtCamera(this)
             end
         end
@@ -235,6 +244,13 @@ registerForEvent('onInit', function()
 
     ObserveAfter('gameuiPhotoModeMenuController', 'OnIntroAnimEnded',
     function(this, e)
+        -- Disable collision by default
+        local colMenuItem = this:GetMenuItem(menuController.attributeKey.collision)
+        colMenuItem.OptionSelector:SetCurrIndex(0)
+        this:OnAttributeUpdated(menuController.attributeKey.collision, 0, true)
+        colMenuItem:OnSliderHandleReleased()
+
+        -- Revert Look At setting if active upon entering Photo Mode
         if menuController.menuItem.lookAtCamera:GetSelectedOptionIndex() == 1 then
             menuController.menuItem.lookAtCamera.OptionSelector:SetCurrIndex(0)
             menuController.menuItem.lookAtCamera.OptionLabelRef:SetText(menuController.menuItem.lookAtCamera.OptionSelector.values[1])
