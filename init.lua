@@ -137,6 +137,36 @@ registerForEvent('onTweak', function()
         TweakDB:SetFlat(poseName .. PMO.modules.data.poseAttributes[4], CName(PMO.modules.data.preset[1]))
         TweakDB:SetFlat(poseName .. PMO.modules.data.poseAttributes[5], PMO.modules.data.poseValues[1])
     end
+
+    -- Setup unavailable poses
+    local offset = Vector3.new(0.0, 0.0, 0.75)
+    for i, poseName in ipairs(PMO.modules.data.photoModePosesUnnamed) do
+        TweakDB:SetFlat(poseName .. PMO.modules.data.poseAttributes[6], CName(PMO.modules.data.photoModePosesNamed[i]))
+        -- Exclude ladder pose from being repositioned
+        if i ~= 1 then
+            TweakDB:SetFlat(poseName .. PMO.modules.data.poseAttributes[7], offset)
+        end
+    end
+
+    -- Add unavailable poses to the options
+    local femalePoses = TweakDB:GetFlat(PMO.modules.data.characterPoses[1])
+    local malePoses = TweakDB:GetFlat(PMO.modules.data.characterPoses[2])
+    for _, poseName in ipairs(PMO.modules.data.photoModePoses) do
+        local AddUnavailablePoses = function(targetPoses)
+            for _, existingName in ipairs(targetPoses) do
+                -- If pose is already in the main list, don't append it
+                if existingName == poseName then
+                    return
+                end
+            end
+            table.insert(targetPoses, poseName)
+        end
+        AddUnavailablePoses(femalePoses)
+        AddUnavailablePoses(malePoses)
+    end
+    TweakDB:SetFlat(PMO.modules.data.characterPoses[1], femalePoses)
+    TweakDB:SetFlat(PMO.modules.data.characterPoses[2], malePoses)
+
     -- Enable full rotation for character poses
     TweakDB:SetFlat(PMO.modules.data.preset[2], 360.0)
     TweakDB:SetFlat(PMO.modules.data.preset[3], 360.0)
@@ -159,6 +189,16 @@ registerForEvent('onTweak', function()
     -- Set higher pose position values
     TweakDB:SetFlat(PMO.modules.data.attributes[7], 10.0)
     TweakDB:SetFlat(PMO.modules.data.attributes[8], 10.0)
+
+    -- Reduce limits on camera settings
+    TweakDB:SetFlat(PMO.modules.data.cameraSettings[1], 150.0)
+    TweakDB:SetFlat(PMO.modules.data.cameraSettings[2], 1.0)
+    TweakDB:SetFlat(PMO.modules.data.cameraSettings[3], 180.0)
+    TweakDB:SetFlat(PMO.modules.data.cameraSettings[4], -180.0)
+    TweakDB:SetFlat(PMO.modules.data.cameraSettings[5], -180.0)
+    TweakDB:SetFlat(PMO.modules.data.cameraSettings[6], 180.0)
+    TweakDB:SetFlat(PMO.modules.data.cameraSettings[7], -180.0)
+    TweakDB:SetFlat(PMO.modules.data.cameraSettings[8], 180.0)
 end)
 
 registerForEvent('onInit', function()
@@ -201,16 +241,6 @@ registerForEvent('onInit', function()
     Observe('gameuiPhotoModeMenuController', 'OnHide',
     function(this)
         GameOptions.SetFloat(PMO.modules.data.category[1], PMO.modules.data.key[1], 3.0)
-    end)
-
-    Override("gameuiPhotoModeMenuController", "OnSetupScrollBar",
-    function(this, attribute, startValue, minValue, maxValue, step, showPercents, wrappedMethod)
-        if attribute == 61 or attribute == 62 or attribute == 66 then
-            minValue = 10.0
-            maxValue = 10.0
-        end
-        local result = wrappedMethod(attribute, startValue, minValue, maxValue, step, showPercents)
-        return result
     end)
 
     ObserveAfter('gameuiPhotoModeMenuController', 'OnAttributeUpdated',
