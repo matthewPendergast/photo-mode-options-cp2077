@@ -137,10 +137,28 @@ registerForEvent('onTweak', function()
         TweakDB:SetFlat(poseName .. PMO.modules.data.poseAttributes[4], CName(PMO.modules.data.preset[1]))
         TweakDB:SetFlat(poseName .. PMO.modules.data.poseAttributes[5], PMO.modules.data.poseValues[1])
     end
-    TweakDB:SetFlat(PMO.modules.data.attributes[1], PMO.modules.config.aperture)
+    -- Enable full rotation for character poses
     TweakDB:SetFlat(PMO.modules.data.preset[2], 360.0)
     TweakDB:SetFlat(PMO.modules.data.preset[3], 360.0)
     TweakDB:SetFlat(PMO.modules.data.preset[4], 360.0)
+
+    -- Set custom aperture setting
+    TweakDB:SetFlat(PMO.modules.data.attributes[1], PMO.modules.config.aperture)
+
+    -- Disable collision mechanics
+    local array = {}
+    for i = 1, 27 do
+        array[i] = 0.0
+    end
+    TweakDB:SetFlat(PMO.modules.data.attributes[2], array)
+    TweakDB:SetFlat(PMO.modules.data.attributes[3], array)
+    TweakDB:SetFlat(PMO.modules.data.attributes[4], 0.0)
+    TweakDB:SetFlat(PMO.modules.data.attributes[5], 0.0)
+    TweakDB:SetFlat(PMO.modules.data.attributes[6], 0.0)
+
+    -- Set higher pose position values
+    TweakDB:SetFlat(PMO.modules.data.attributes[7], 10.0)
+    TweakDB:SetFlat(PMO.modules.data.attributes[8], 10.0)
 end)
 
 registerForEvent('onInit', function()
@@ -183,6 +201,16 @@ registerForEvent('onInit', function()
     Observe('gameuiPhotoModeMenuController', 'OnHide',
     function(this)
         GameOptions.SetFloat(PMO.modules.data.category[1], PMO.modules.data.key[1], 3.0)
+    end)
+
+    Override("gameuiPhotoModeMenuController", "OnSetupScrollBar",
+    function(this, attribute, startValue, minValue, maxValue, step, showPercents, wrappedMethod)
+        if attribute == 61 or attribute == 62 or attribute == 66 then
+            minValue = 10.0
+            maxValue = 10.0
+        end
+        local result = wrappedMethod(attribute, startValue, minValue, maxValue, step, showPercents)
+        return result
     end)
 
     ObserveAfter('gameuiPhotoModeMenuController', 'OnAttributeUpdated',
@@ -262,6 +290,7 @@ registerForEvent('onInit', function()
     
     Observe('gameuiPhotoModeMenuController', 'GetCurrentSelectedMenuListItem',
     function(this)
+        -- Set Depth of Field to Off
         if menuController.menuItem.initialized and state.dof.isInitialized and not state.dof.isFinalized then
             state.dof.isFinalized = true
             local dofMenuItem = this:GetMenuItem(menuController.attributeKey.dofEnabled)
