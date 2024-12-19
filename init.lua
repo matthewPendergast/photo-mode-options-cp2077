@@ -11,18 +11,19 @@ local menuController = {
     },
     attributeKey = {
         -- New attributeKeys
-        lockLookAtCamera = 9100,
-        setHeadSuppress = 9101,
-        setHeadWeight = 9102,
-        setChestSuppress = 9103,
-        setChestWeight = 9104,
-        transitionSpeed = 9105,
-        xPos = 9106,
-        yPos = 9107,
-        zPos = 9108,
-        rollAngle = 9109,
-        pitchAngle = 9110,
-        yawAngle = 9111,
+        toggleMovementType = 9000,
+        lockLookAtCamera = 9200,
+        setHeadSuppress = 9201,
+        setHeadWeight = 9202,
+        setChestSuppress = 9203,
+        setChestWeight = 9204,
+        transitionSpeed = 9205,
+        xPos = 9206,
+        yPos = 9207,
+        zPos = 9208,
+        rollAngle = 9209,
+        pitchAngle = 9210,
+        yawAngle = 9211,
         -- Reference attributeKeys
         rotate = 7,
         leftRight = 8,
@@ -33,6 +34,7 @@ local menuController = {
         collision = 39,
     },
     menuItem = {
+        toggleMovementType = nil,
         lockLookAtCamera = nil,
         setHeadSuppress = nil,
         setHeadWeight = nil,
@@ -52,6 +54,7 @@ local menuController = {
 
 local localizable = {
     menuItem = {
+        toggleMovementType = 'Set Pose Movement Type',
         lockLookAtCamera = 'Lock \'Look At Camera\'',
         setHeadSuppress = 'Set Head Suppress',
         setHeadWeight = 'Set Head Weight',
@@ -66,17 +69,19 @@ local localizable = {
         yawAngle = 'Yaw',
     },
     optionSelectorValues = {
+        toggleMovementType = { 'Alternate', 'Default' },
         lockLookAtCamera = { 'Unlocked', 'Locked' },
         lookAtPreset = { 'Full Body', 'Head Only', 'Eyes Only'},
     },
 }
 
 local menuItemKeys = {
-    'lockLookAtCamera', 'setHeadSuppress', 'setHeadWeight', 'setChestSuppress', 'setChestWeight', 'transitionSpeed',
+    'toggleMovementType', 'lockLookAtCamera', 'setHeadSuppress', 'setHeadWeight', 'setChestSuppress', 'setChestWeight', 'transitionSpeed',
     'xPos', 'yPos', 'zPos', 'rollAngle', 'pitchAngle', 'yawAngle',
 }
 
 local state = {
+    isDefaultMovementScheme = false,
     dof = {
         isInitialized = false,
         isFinalized = false,
@@ -151,6 +156,20 @@ local function SetLookAtPresetVisibility(boolean)
     menuController.menuItem.setChestSuppress:GetRootWidget():SetVisible(boolean)
     menuController.menuItem.setChestWeight:GetRootWidget():SetVisible(boolean)
     menuController.menuItem.transitionSpeed:GetRootWidget():SetVisible(boolean)
+end
+
+---@param photoModeController gameuiPhotoModeMenuController
+local function SetDefaultMovementSchemeVisibility(photoModeController, boolean)
+    photoModeController:GetMenuItem(menuController.attributeKey.rotate):GetRootWidget():SetVisible(boolean)
+    photoModeController:GetMenuItem(menuController.attributeKey.leftRight):GetRootWidget():SetVisible(boolean)
+    photoModeController:GetMenuItem(menuController.attributeKey.closeFar):GetRootWidget():SetVisible(boolean)
+    photoModeController:GetMenuItem(menuController.attributeKey.upDown):GetRootWidget():SetVisible(boolean)
+    menuController.menuItem.xPos:GetRootWidget():SetVisible(not boolean)
+    menuController.menuItem.yPos:GetRootWidget():SetVisible(not boolean)
+    menuController.menuItem.zPos:GetRootWidget():SetVisible(not boolean)
+    menuController.menuItem.rollAngle:GetRootWidget():SetVisible(not boolean)
+    menuController.menuItem.pitchAngle:GetRootWidget():SetVisible(not boolean)
+    menuController.menuItem.yawAngle:GetRootWidget():SetVisible(not boolean)
 end
 
 ---@param photoModeController gameuiPhotoModeMenuController
@@ -305,6 +324,7 @@ registerForEvent('onInit', function()
         menuController.menuItem.lookAtCamera = this:GetMenuItem(menuController.attributeKey.lookAtCamera)
 
         -- Setup Menu Items
+        SetupOptionSelector(menuController.menuItem.toggleMovementType, this, false, localizable.optionSelectorValues.toggleMovementType)
         SetupOptionSelector(menuController.menuItem.lockLookAtCamera, this, false, localizable.optionSelectorValues.lockLookAtCamera)
         SetupScrollBar(menuController.menuItem.setHeadSuppress, this, false, 0.0, 0.0, 1.0, .01)
         SetupScrollBar(menuController.menuItem.setHeadWeight, this, false, 0.0, 0.0, 1.0, .01)
@@ -335,9 +355,38 @@ registerForEvent('onInit', function()
         GameOptions.SetFloat(PMO.modules.data.category[1], PMO.modules.data.key[1], 3.0)
     end)
 
+    Override("gameuiPhotoModeMenuController", "OnSetAttributeOptionEnabled",
+    function(this, attributeKey, enabled, wrappedMethod)
+        if not state.isDefaultMovementScheme then
+            local positionKeys = {
+                [menuController.attributeKey.rotate] = true,
+                [menuController.attributeKey.leftRight] = true,
+                [menuController.attributeKey.closeFar] = true,
+                [menuController.attributeKey.upDown] = true,
+            }
+            -- Hide default movement controls for persistent setting (when implemented)
+            if positionKeys[attributeKey] then
+                enabled = false
+            end
+        end
+        local result = wrappedMethod(attributeKey, enabled)
+        return result
+    end)
+
     ObserveAfter('gameuiPhotoModeMenuController', 'OnAttributeUpdated',
     function(this, attributeKey, attributeValue, doApply)
         if menuController.menuItem.initialized then
+            -- If 'Set Pose Movement Type' is changed
+            if attributeKey == menuController.attributeKey.toggleMovementType then
+                local label = menuController.menuItem.toggleMovementType.OptionLabelRef:GetText()
+                if label == localizable.optionSelectorValues.toggleMovementType[1] then
+                    state.isDefaultMovementScheme = false
+                    SetDefaultMovementSchemeVisibility(this, false)
+                elseif label == localizable.optionSelectorValues.toggleMovementType[2] then
+                    state.isDefaultMovementScheme = true
+                    SetDefaultMovementSchemeVisibility(this, true)
+                end
+            end
             -- Activates after game has finished setting up Depth of Field
             if attributeKey == menuController.attributeKey.dofEnabled and not state.dof.isFinalized then
                 state.dof.isInitialized = true
@@ -431,7 +480,7 @@ registerForEvent('onInit', function()
             menuController.menuItem.lookAtCamera:OnSliderHandleReleased()
         end
     end)
-    
+
     Observe('gameuiPhotoModeMenuController', 'GetCurrentSelectedMenuListItem',
     function(this)
         -- Set Depth of Field to Off
