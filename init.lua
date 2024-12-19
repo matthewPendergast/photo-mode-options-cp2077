@@ -6,15 +6,30 @@ local PMO = {
 }
 
 local menuController = {
+    page = {
+        pose = 2,
+    },
     attributeKey = {
+        -- New attributeKeys
         lockLookAtCamera = 9100,
         setHeadSuppress = 9101,
         setHeadWeight = 9102,
         setChestSuppress = 9103,
         setChestWeight = 9104,
         transitionSpeed = 9105,
+        xPos = 9106,
+        yPos = 9107,
+        zPos = 9108,
+        rollAngle = 9109,
+        pitchAngle = 9110,
+        yawAngle = 9111,
+        -- Reference attributeKeys
+        rotate = 7,
+        leftRight = 8,
+        closeFar = 9,
         lookAtCamera = 15,
         dofEnabled = 26,
+        upDown = 37,
         collision = 39,
     },
     menuItem = {
@@ -24,6 +39,12 @@ local menuController = {
         setChestSuppress = nil,
         setChestWeight = nil,
         transitionSpeed = nil,
+        xPos = nil,
+        yPos = nil,
+        zPos = nil,
+        rollAngle = nil,
+        pitchAngle = nil,
+        yawAngle = nil,
         lookAtCamera = nil,
         initialized = false,
     }
@@ -37,6 +58,12 @@ local localizable = {
         setChestSuppress = 'Set Chest Suppress',
         setChestWeight = 'Set Chest Weight',
         transitionSpeed = 'Transition Speed',
+        xPos = 'X',
+        yPos = 'Y',
+        zPos = 'Z',
+        rollAngle = 'Roll',
+        pitchAngle = 'Pitch',
+        yawAngle = 'Yaw',
     },
     optionSelectorValues = {
         lockLookAtCamera = { 'Unlocked', 'Locked' },
@@ -46,6 +73,7 @@ local localizable = {
 
 local menuItemKeys = {
     'lockLookAtCamera', 'setHeadSuppress', 'setHeadWeight', 'setChestSuppress', 'setChestWeight', 'transitionSpeed',
+    'xPos', 'yPos', 'zPos', 'rollAngle', 'pitchAngle', 'yawAngle',
 }
 
 local state = {
@@ -55,13 +83,23 @@ local state = {
     },
 }
 
+local transform = {
+    position = { x = 0.0, y = 0.0, z = 0.0, w = 1 },
+    orientation = { roll = 0, pitch = 0, yaw = 0 },
+}
+
+local fakePuppet = nil
+local movementStep = 0.1
+
 -- Menu Controller Functions --
 
 ---@param photoModeController gameuiPhotoModeMenuController
+---@param labelSet string[]
+---@param attributeSet integer[]
 ---@param page integer
-local function AddMenuItems(photoModeController, page)
+local function AddMenuItems(photoModeController, labelSet, attributeSet, page)
     for _, key in ipairs(menuItemKeys) do
-        photoModeController:AddMenuItem(localizable.menuItem[key], menuController.attributeKey[key], page, false)
+        photoModeController:AddMenuItem(labelSet[key], attributeSet[key], page, false)
     end
 end
 
@@ -124,6 +162,54 @@ local function CycleLookAtCamera(photoModeController)
         photoModeController:OnAttributeUpdated(menuController.attributeKey.lookAtCamera, i, true)
         menuController.menuItem.lookAtCamera:OnSliderHandleReleased()
     end
+end
+
+-- Misc Functions --
+
+---@param character gamePuppet
+---@param transformTable table
+---@param keyPath string
+---@param value float
+---@param operation string ('increment'|'set')
+local function UpdateCharacterTransform(character, transformTable, keyPath, value, operation)
+    local worldTransform = character:GetWorldTransform()
+    local worldOrientation = worldTransform:GetOrientation():ToEulerAngles()
+
+    -- Update position
+    transform.position.x = worldTransform.Position:GetX()
+    transform.position.y = worldTransform.Position:GetY()
+    transform.position.z = worldTransform.Position:GetZ()
+
+    -- Update orientation
+    transform.orientation.roll = worldOrientation.roll
+    transform.orientation.pitch = worldOrientation.pitch
+    transform.orientation.yaw = worldOrientation.yaw
+
+    -- Separate keyPath into keys
+    local keys = {}
+    for key in string.gmatch(keyPath, '[^.]+') do
+        table.insert(keys, key)
+    end
+
+    -- Locate the nested value to be updated
+    local field = transformTable
+    for i = 1, #keys - 1 do
+        field = field[keys[i]]
+    end
+
+    -- Update the affected transform value
+    local finalKey = keys[#keys]
+    if operation == 'increment' then
+        field[finalKey] = field[finalKey] + value
+    elseif operation == 'set' then
+        field[finalKey] = value
+    end
+
+    -- Setup new position and orientation values
+    local position = Vector4.new(transform.position.x, transform.position.y, transform.position.z, transform.position.w)
+    local orientation = EulerAngles.new(transform.orientation.roll, transform.orientation.pitch, transform.orientation.yaw)
+
+    Game.GetTeleportationFacility():Teleport(character, position, orientation)
 end
 
 -- CET Event Handling --
@@ -204,10 +290,10 @@ end)
 registerForEvent('onInit', function()
     Override('gameuiPhotoModeMenuController', 'AddMenuItem',
     function(this, label, attributeKey, page, isAdditional, wrappedMethod)
-        wrappedMethod(label, attributeKey, page, isAdditional)
         if attributeKey == menuController.attributeKey.lookAtCamera then
-            AddMenuItems(this, page)
+            AddMenuItems(this, localizable.menuItem, menuController.attributeKey, page)
         end
+        wrappedMethod(label, attributeKey, page, isAdditional)
     end)
 
     Override('gameuiPhotoModeMenuController', 'OnShow',
@@ -225,6 +311,12 @@ registerForEvent('onInit', function()
         SetupScrollBar(menuController.menuItem.setChestSuppress, this, false, 0.0, 0.0, 1.0, .01)
         SetupScrollBar(menuController.menuItem.setChestWeight, this, false, 0.0, 0.0, 0.5, .005)
         SetupScrollBar(menuController.menuItem.transitionSpeed, this, false, 70.0, 1.0, 140.0, 1.0)
+        SetupScrollBar(menuController.menuItem.rollAngle, this, true, 0.0, -180.0, 180.0, 1.0)
+        SetupScrollBar(menuController.menuItem.pitchAngle, this, true, 0.0, -180.0, 180.0, 1.0)
+        SetupScrollBar(menuController.menuItem.yawAngle, this, true, transform.orientation.yaw, -180.0, 180.0, 1.0)
+        SetupScrollBar(menuController.menuItem.xPos, this, true, 0.0, -10.0, 10.0, movementStep)
+        SetupScrollBar(menuController.menuItem.yPos, this, true, 0.0, -10.0, 10.0, movementStep)
+        SetupScrollBar(menuController.menuItem.zPos, this, true, 0.0, -10.0, 10.0, movementStep)
 
         -- Reset Depth of Field state checks
         state.dof.isFinalized = false
@@ -232,7 +324,7 @@ registerForEvent('onInit', function()
 
         -- Setup UI
         SetLookAtPresetVisibility(false)
-        this:GetChildWidgetByPath(PMO.modules.data.widgetPath[1]):SetHeight(600.0)
+        this:GetChildWidgetByPath(PMO.modules.data.widgetPath[1]):SetHeight(1400.0)
 
         menuController.menuItem.initialized = true
         return result
@@ -256,10 +348,10 @@ registerForEvent('onInit', function()
                 menuController.menuItem.lookAtCamera.OptionSelector:SetCurrIndex(attributeValue)
                 if attributeValue == 1 then
                     SetLookAtPresetVisibility(true)
-                    this:GetChildWidgetByPath(PMO.modules.data.widgetPath[1]):SetHeight(1100.0)
+                    this:GetChildWidgetByPath(PMO.modules.data.widgetPath[1]):SetHeight(1400.0)
                 elseif attributeValue == 0 then
                     SetLookAtPresetVisibility(false)
-                    this:GetChildWidgetByPath(PMO.modules.data.widgetPath[1]):SetHeight(600.0)
+                    this:GetChildWidgetByPath(PMO.modules.data.widgetPath[1]):SetHeight(1400.0)
                     if menuController.menuItem.lockLookAtCamera.OptionSelector.index == 1 then
                         menuController.menuItem.lockLookAtCamera.OptionSelector:Prior()
                         GameOptions.SetFloat(PMO.modules.data.category[1], PMO.modules.data.key[1], 3.0)
@@ -297,6 +389,28 @@ registerForEvent('onInit', function()
                 TweakDB:SetFlat(PMO.modules.data.preset[10], menuController.menuItem.transitionSpeed:GetSliderValue())
                 CycleLookAtCamera(this)
             end
+            -- If new movement options are changed
+            if attributeKey == menuController.attributeKey.xPos then
+                local offset = movementStep * menuController.menuItem.xPos.inputDirection
+                UpdateCharacterTransform(fakePuppet, transform, 'position.x', offset, 'increment')
+            end
+            if attributeKey == menuController.attributeKey.yPos then
+                local offset = movementStep * menuController.menuItem.yPos.inputDirection
+                UpdateCharacterTransform(fakePuppet, transform, 'position.y', offset, 'increment')
+            end
+            if attributeKey == menuController.attributeKey.zPos then
+                local offset = movementStep * menuController.menuItem.zPos.inputDirection
+                UpdateCharacterTransform(fakePuppet, transform, 'position.z', offset, 'increment')
+            end
+            if attributeKey == menuController.attributeKey.rollAngle then
+                UpdateCharacterTransform(fakePuppet, transform, 'orientation.roll', menuController.menuItem.rollAngle:GetSliderValue(), 'set')
+            end
+            if attributeKey == menuController.attributeKey.pitchAngle then
+                UpdateCharacterTransform(fakePuppet, transform, 'orientation.pitch', menuController.menuItem.pitchAngle:GetSliderValue(), 'set')
+            end
+            if attributeKey == menuController.attributeKey.yawAngle then
+                UpdateCharacterTransform(fakePuppet, transform, 'orientation.yaw', menuController.menuItem.yawAngle:GetSliderValue(), 'set')
+            end
         end
     end)
 
@@ -328,6 +442,14 @@ registerForEvent('onInit', function()
             this:OnAttributeUpdated(menuController.attributeKey.dofEnabled, 0, true)
             dofMenuItem:OnSliderHandleReleased()
         end
+    end)
+
+    Observe('PhotoModePlayerEntityComponent', 'ListAllCurrentItems',
+    function(this)
+        -- Retrieve Photo Mode puppet for persistent access
+        fakePuppet = this.fakePuppet
+        -- Retrieve Photo Mode puppet's initial yaw for UI display value
+        transform.orientation.yaw = fakePuppet:GetWorldYaw()
     end)
 end)
 
