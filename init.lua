@@ -11,25 +11,26 @@ local menuController = {
     },
     attributeKey = {
         -- New attributeKeys
-        toggleMovementType = 9000,
         lockLookAtCamera = 9200,
         setHeadSuppress = 9201,
         setHeadWeight = 9202,
         setChestSuppress = 9203,
         setChestWeight = 9204,
         transitionSpeed = 9205,
-        xPos = 9206,
-        yPos = 9207,
-        zPos = 9208,
-        rollAngle = 9209,
-        pitchAngle = 9210,
-        yawAngle = 9211,
+        toggleMovementType = 9206,
+        xPos = 9207,
+        yPos = 9208,
+        zPos = 9209,
+        rollAngle = 9210,
+        pitchAngle = 9211,
+        yawAngle = 9212,
         -- Reference attributeKeys
         rotate = 7,
         leftRight = 8,
         closeFar = 9,
         lookAtCamera = 15,
         dofEnabled = 26,
+        characterVisible = 27,
         upDown = 37,
         collision = 39,
     },
@@ -49,35 +50,34 @@ local menuController = {
         yawAngle = nil,
         lookAtCamera = nil,
         initialized = false,
-    }
+    },
 }
 
 local localizable = {
     menuItem = {
-        toggleMovementType = 'Set Pose Movement Type',
-        lockLookAtCamera = 'Lock \'Look At Camera\'',
-        setHeadSuppress = 'Set Head Suppress',
-        setHeadWeight = 'Set Head Weight',
-        setChestSuppress = 'Set Chest Suppress',
-        setChestWeight = 'Set Chest Weight',
-        transitionSpeed = 'Transition Speed',
-        xPos = 'X',
-        yPos = 'Y',
-        zPos = 'Z',
-        rollAngle = 'Roll',
-        pitchAngle = 'Pitch',
-        yawAngle = 'Yaw',
+        lookAt = {
+            { key = 'lockLookAtCamera', label = 'Lock \'Look At Camera\'' },
+            { key = 'setHeadSuppress', label = 'Set Head Suppress' },
+            { key = 'setHeadWeight', label = 'Set Head Weight' },
+            { key = 'setChestSuppress', label = 'Set Chest Suppress' },
+            { key = 'setChestWeight', label = 'Set Chest Weight' },
+            { key = 'transitionSpeed', label = 'Transition Speed' },
+        },
+        movement = {
+            { key = 'toggleMovementType', label = 'Set Pose Movement Type' },
+            { key = 'xPos', label = 'X' },
+            { key = 'yPos', label = 'Y' },
+            { key = 'zPos', label = 'Z' },
+            { key = 'rollAngle', label = 'Roll' },
+            { key = 'pitchAngle', label = 'Pitch' },
+            { key = 'yawAngle', label = 'Yaw' },
+        },
     },
     optionSelectorValues = {
         toggleMovementType = { 'Alternate', 'Default' },
         lockLookAtCamera = { 'Unlocked', 'Locked' },
         lookAtPreset = { 'Full Body', 'Head Only', 'Eyes Only'},
     },
-}
-
-local menuItemKeys = {
-    'toggleMovementType', 'lockLookAtCamera', 'setHeadSuppress', 'setHeadWeight', 'setChestSuppress', 'setChestWeight', 'transitionSpeed',
-    'xPos', 'yPos', 'zPos', 'rollAngle', 'pitchAngle', 'yawAngle',
 }
 
 local state = {
@@ -99,19 +99,26 @@ local movementStep = 0.1
 -- Menu Controller Functions --
 
 ---@param photoModeController gameuiPhotoModeMenuController
----@param labelSet string[]
----@param attributeSet integer[]
+---@param category string
 ---@param page integer
-local function AddMenuItems(photoModeController, labelSet, attributeSet, page)
-    for _, key in ipairs(menuItemKeys) do
-        photoModeController:AddMenuItem(labelSet[key], attributeSet[key], page, false)
+local function AddMenuItems(photoModeController, category, page)
+    for _, item in ipairs(localizable.menuItem[category]) do
+        local key = item.key
+        local label = item.label
+        local attribute = menuController.attributeKey[key]
+        photoModeController:AddMenuItem(label, attribute, page, false)
     end
 end
 
 ---@param photoModeController gameuiPhotoModeMenuController
 local function AssignMenuItems(photoModeController)
-    for _, key in ipairs(menuItemKeys) do
-        menuController.menuItem[key] = photoModeController:GetMenuItem(menuController.attributeKey[key])
+    menuController.menuItem = {} -- Clear or initialize the table
+    for _, items in pairs(localizable.menuItem) do
+        for _, item in ipairs(items) do
+            local key = item.key
+            local attribute = menuController.attributeKey[key]
+            menuController.menuItem[key] = photoModeController:GetMenuItem(attribute)
+        end
     end
 end
 
@@ -159,17 +166,33 @@ local function SetLookAtPresetVisibility(boolean)
 end
 
 ---@param photoModeController gameuiPhotoModeMenuController
-local function SetDefaultMovementSchemeVisibility(photoModeController, boolean)
-    photoModeController:GetMenuItem(menuController.attributeKey.rotate):GetRootWidget():SetVisible(boolean)
-    photoModeController:GetMenuItem(menuController.attributeKey.leftRight):GetRootWidget():SetVisible(boolean)
-    photoModeController:GetMenuItem(menuController.attributeKey.closeFar):GetRootWidget():SetVisible(boolean)
-    photoModeController:GetMenuItem(menuController.attributeKey.upDown):GetRootWidget():SetVisible(boolean)
-    menuController.menuItem.xPos:GetRootWidget():SetVisible(not boolean)
-    menuController.menuItem.yPos:GetRootWidget():SetVisible(not boolean)
-    menuController.menuItem.zPos:GetRootWidget():SetVisible(not boolean)
-    menuController.menuItem.rollAngle:GetRootWidget():SetVisible(not boolean)
-    menuController.menuItem.pitchAngle:GetRootWidget():SetVisible(not boolean)
-    menuController.menuItem.yawAngle:GetRootWidget():SetVisible(not boolean)
+---@param visible boolean
+---@param sameVisibility boolean|nil
+local function SetDefaultMovementSchemeVisibility(photoModeController, visible, sameVisibility)
+    -- Optional third parameter sets all movement scheme menu items to use the second parameter
+    sameVisibility = sameVisibility or false
+    local itemsToToggle = {
+        {controller = photoModeController:GetMenuItem(menuController.attributeKey.toggleMovementType), toggle = true},
+        {controller = photoModeController:GetMenuItem(menuController.attributeKey.rotate), toggle = visible},
+        {controller = photoModeController:GetMenuItem(menuController.attributeKey.leftRight), toggle = visible},
+        {controller = photoModeController:GetMenuItem(menuController.attributeKey.closeFar), toggle = visible},
+        {controller = photoModeController:GetMenuItem(menuController.attributeKey.upDown), toggle = visible},
+        {controller = menuController.menuItem.xPos, toggle = not visible},
+        {controller = menuController.menuItem.yPos, toggle = not visible},
+        {controller = menuController.menuItem.zPos, toggle = not visible},
+        {controller = menuController.menuItem.rollAngle, toggle = not visible},
+        {controller = menuController.menuItem.pitchAngle, toggle = not visible},
+        {controller = menuController.menuItem.yawAngle, toggle = not visible},
+    }
+
+    for _, item in ipairs(itemsToToggle) do
+        if item.controller then
+            if sameVisibility then
+                item.toggle = visible
+            end
+            item.controller:GetRootWidget():SetVisible(item.toggle)
+        end
+    end
 end
 
 ---@param photoModeController gameuiPhotoModeMenuController
@@ -309,8 +332,9 @@ end)
 registerForEvent('onInit', function()
     Override('gameuiPhotoModeMenuController', 'AddMenuItem',
     function(this, label, attributeKey, page, isAdditional, wrappedMethod)
-        if attributeKey == menuController.attributeKey.lookAtCamera then
-            AddMenuItems(this, localizable.menuItem, menuController.attributeKey, page)
+        if attributeKey == menuController.attributeKey.rotate then
+            AddMenuItems(this, 'lookAt', page)
+            AddMenuItems(this, 'movement', page)
         end
         wrappedMethod(label, attributeKey, page, isAdditional)
     end)
@@ -381,15 +405,23 @@ registerForEvent('onInit', function()
                 local label = menuController.menuItem.toggleMovementType.OptionLabelRef:GetText()
                 if label == localizable.optionSelectorValues.toggleMovementType[1] then
                     state.isDefaultMovementScheme = false
-                    SetDefaultMovementSchemeVisibility(this, false)
+                    SetDefaultMovementSchemeVisibility(this, state.isDefaultMovementScheme)
                 elseif label == localizable.optionSelectorValues.toggleMovementType[2] then
                     state.isDefaultMovementScheme = true
-                    SetDefaultMovementSchemeVisibility(this, true)
+                    SetDefaultMovementSchemeVisibility(this, state.isDefaultMovementScheme)
                 end
             end
             -- Activates after game has finished setting up Depth of Field
             if attributeKey == menuController.attributeKey.dofEnabled and not state.dof.isFinalized then
                 state.dof.isInitialized = true
+            end
+            -- If 'Character Visible' is toggled
+            if attributeKey == menuController.attributeKey.characterVisible then
+                if attributeValue == 0 then
+                    SetDefaultMovementSchemeVisibility(this, false, true)
+                elseif attributeValue == 1 then
+                    SetDefaultMovementSchemeVisibility(this, state.isDefaultMovementScheme)
+                end
             end
             -- If 'Look At Camera' is changed
             if attributeKey == menuController.attributeKey.lookAtCamera then
