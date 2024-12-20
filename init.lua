@@ -2,7 +2,10 @@ local PMO = {
     modules = {
         config = require('config.lua'),
         data = require('modules/data.lua'),
-    }
+    },
+    external = {
+        cron = require('external/Cron.lua')
+    },
 }
 
 local menuController = {
@@ -11,19 +14,20 @@ local menuController = {
     },
     attributeKey = {
         -- New attributeKeys
-        lockLookAtCamera = 9200,
-        setHeadSuppress = 9201,
-        setHeadWeight = 9202,
-        setChestSuppress = 9203,
-        setChestWeight = 9204,
-        transitionSpeed = 9205,
-        toggleMovementType = 9206,
-        xPos = 9207,
-        yPos = 9208,
-        zPos = 9209,
-        rollAngle = 9210,
-        pitchAngle = 9211,
-        yawAngle = 9212,
+        freezeAnim = 9200,
+        lockLookAtCamera = 9201,
+        setHeadSuppress = 9202,
+        setHeadWeight = 9203,
+        setChestSuppress = 9204,
+        setChestWeight = 9205,
+        transitionSpeed = 9206,
+        toggleMovementType = 9207,
+        xPos = 9208,
+        yPos = 9209,
+        zPos = 9210,
+        rollAngle = 9211,
+        pitchAngle = 9212,
+        yawAngle = 9213,
         -- Reference attributeKeys
         rotate = 7,
         leftRight = 8,
@@ -31,10 +35,12 @@ local menuController = {
         lookAtCamera = 15,
         dofEnabled = 26,
         characterVisible = 27,
+        facialExpression = 28,
         upDown = 37,
         collision = 39,
     },
     menuItem = {
+        freezeAnim = nil,
         toggleMovementType = nil,
         lockLookAtCamera = nil,
         setHeadSuppress = nil,
@@ -55,6 +61,9 @@ local menuController = {
 
 local localizable = {
     menuItem = {
+        animation = {
+            { key = 'freezeAnim', label = 'Freeze Animation'},
+        },
         lookAt = {
             { key = 'lockLookAtCamera', label = 'Lock \'Look At Camera\'' },
             { key = 'setHeadSuppress', label = 'Set Head Suppress' },
@@ -74,6 +83,7 @@ local localizable = {
         },
     },
     optionSelectorValues = {
+        freezeAnim = { 'Off', 'On' },
         toggleMovementType = { 'Alternate', 'Default' },
         lockLookAtCamera = { 'Unlocked', 'Locked' },
         lookAtPreset = { 'Full Body', 'Head Only', 'Eyes Only'},
@@ -82,6 +92,7 @@ local localizable = {
 
 local state = {
     isDefaultMovementScheme = false,
+    isPuppetTeleported = false,
     dof = {
         isInitialized = false,
         isFinalized = false,
@@ -251,7 +262,10 @@ local function UpdateCharacterTransform(character, transformTable, keyPath, valu
     local position = Vector4.new(transform.position.x, transform.position.y, transform.position.z, transform.position.w)
     local orientation = EulerAngles.new(transform.orientation.roll, transform.orientation.pitch, transform.orientation.yaw)
 
+    -- Disable foot snap while Photo Mode puppet is being moved
+    fakePuppet:SetIndividualTimeDilation(PMO.modules.data.timeOnArg[1], PMO.modules.data.timeOnArg[2], PMO.modules.data.timeOnArg[3], PMO.modules.data.timeOnArg[1], PMO.modules.data.timeOnArg[1], PMO.modules.data.timeOnArg[4])
     Game.GetTeleportationFacility():Teleport(character, position, orientation)
+    state.isPuppetTeleported = true
 end
 
 -- CET Event Handling --
@@ -332,6 +346,9 @@ end)
 registerForEvent('onInit', function()
     Override('gameuiPhotoModeMenuController', 'AddMenuItem',
     function(this, label, attributeKey, page, isAdditional, wrappedMethod)
+        if attributeKey == menuController.attributeKey.facialExpression then
+            AddMenuItems(this, 'animation', page)
+        end
         if attributeKey == menuController.attributeKey.rotate then
             AddMenuItems(this, 'lookAt', page)
             AddMenuItems(this, 'movement', page)
@@ -348,6 +365,7 @@ registerForEvent('onInit', function()
         menuController.menuItem.lookAtCamera = this:GetMenuItem(menuController.attributeKey.lookAtCamera)
 
         -- Setup Menu Items
+        SetupOptionSelector(menuController.menuItem.freezeAnim, this, false, localizable.optionSelectorValues.freezeAnim)
         SetupOptionSelector(menuController.menuItem.toggleMovementType, this, false, localizable.optionSelectorValues.toggleMovementType)
         SetupOptionSelector(menuController.menuItem.lockLookAtCamera, this, false, localizable.optionSelectorValues.lockLookAtCamera)
         SetupScrollBar(menuController.menuItem.setHeadSuppress, this, false, 0.0, 0.0, 1.0, .01)
@@ -400,6 +418,16 @@ registerForEvent('onInit', function()
     ObserveAfter('gameuiPhotoModeMenuController', 'OnAttributeUpdated',
     function(this, attributeKey, attributeValue, doApply)
         if menuController.menuItem.initialized then
+            -- If 'Freeze Animation' is toggled
+            if attributeKey == menuController.attributeKey.freezeAnim then
+                local label = menuController.menuItem.freezeAnim.OptionLabelRef:GetText()
+                if label == localizable.optionSelectorValues.freezeAnim[1] then
+                    fakePuppet:SetIndividualTimeDilation(PMO.modules.data.timeOffArg[1], PMO.modules.data.timeOffArg[2], PMO.modules.data.timeOffArg[3], PMO.modules.data.timeOffArg[1], PMO.modules.data.timeOffArg[1], PMO.modules.data.timeOffArg[4])
+
+                elseif label == localizable.optionSelectorValues.freezeAnim[2] then
+                    fakePuppet:SetIndividualTimeDilation(PMO.modules.data.timeOnArg[1], PMO.modules.data.timeOnArg[2], PMO.modules.data.timeOnArg[3], PMO.modules.data.timeOnArg[1], PMO.modules.data.timeOnArg[1], PMO.modules.data.timeOnArg[4])
+                end
+            end
             -- If 'Set Pose Movement Type' is changed
             if attributeKey == menuController.attributeKey.toggleMovementType then
                 local label = menuController.menuItem.toggleMovementType.OptionLabelRef:GetText()
@@ -532,6 +560,18 @@ registerForEvent('onInit', function()
         -- Retrieve Photo Mode puppet's initial yaw for UI display value
         transform.orientation.yaw = fakePuppet:GetWorldYaw()
     end)
+end)
+
+registerForEvent('onUpdate', function(deltaTime)
+    PMO.external.cron.Update(deltaTime)
+
+    if state.isPuppetTeleported then
+        -- Unfreeze Photo Mode puppet after teleportation
+        state.isPuppetTeleported = false
+        PMO.external.cron.After(0.25, function()
+            fakePuppet:SetIndividualTimeDilation(PMO.modules.data.timeOffArg[1], PMO.modules.data.timeOffArg[2], PMO.modules.data.timeOffArg[3], PMO.modules.data.timeOffArg[1], PMO.modules.data.timeOffArg[1], PMO.modules.data.timeOffArg[4])
+        end)
+    end
 end)
 
 return PMO
