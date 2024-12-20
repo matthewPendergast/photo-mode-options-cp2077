@@ -10,7 +10,14 @@ local PMO = {
 
 local menuController = {
     page = {
+        camera = 0,
+        dof = 1,
         pose = 2,
+        characters = 3,
+        lighting = 4,
+        effect = 5,
+        stickers = 6,
+        loadSave = 7,
     },
     attributeKey = {
         -- New attributeKeys
@@ -28,10 +35,12 @@ local menuController = {
         rollAngle = 9211,
         pitchAngle = 9212,
         yawAngle = 9213,
+        setTime = 9501,
         -- Reference attributeKeys
         rotate = 7,
         leftRight = 8,
         closeFar = 9,
+        exposure = 10,
         lookAtCamera = 15,
         dofEnabled = 26,
         characterVisible = 27,
@@ -55,6 +64,7 @@ local menuController = {
         pitchAngle = nil,
         yawAngle = nil,
         lookAtCamera = nil,
+        setTime = nil,
         initialized = false,
     },
 }
@@ -81,6 +91,9 @@ local localizable = {
             { key = 'pitchAngle', label = 'Pitch' },
             { key = 'yawAngle', label = 'Yaw' },
         },
+        world = {
+            { key = 'setTime', label = 'Set Time of Day' },
+        },
     },
     optionSelectorValues = {
         freezeAnim = { 'Off', 'On' },
@@ -97,6 +110,10 @@ local state = {
         isInitialized = false,
         isFinalized = false,
     },
+    time = {
+        hour = nil,
+        minute = nil,
+    }
 }
 
 local transform = {
@@ -157,14 +174,15 @@ end
 ---@param minVal float
 ---@param maxVal float
 ---@param step float
-local function SetupScrollBar(menuItem, photoModeController, isVisible, startVal, minVal, maxVal, step)
+---@param showPercents bool
+local function SetupScrollBar(menuItem, photoModeController, isVisible, startVal, minVal, maxVal, step, showPercents)
     menuItem.photoModeController = photoModeController
     menuItem:GetRootWidget():SetVisible(isVisible)
     menuItem.GridRoot:SetVisible(false)
     menuItem.OptionSelectorRef:SetVisible(false)
     menuItem.ScrollBarRef:SetVisible(true)
     menuItem:SetIsEnabled(true)
-    menuItem:SetupScrollBar(startVal, minVal, maxVal, step, true)
+    menuItem:SetupScrollBar(startVal, minVal, maxVal, step, showPercents)
 end
 
 local function SetLookAtPresetVisibility(boolean)
@@ -265,7 +283,22 @@ local function UpdateCharacterTransform(character, transformTable, keyPath, valu
     -- Disable foot snap while Photo Mode puppet is being moved
     fakePuppet:SetIndividualTimeDilation(PMO.modules.data.timeOnArg[1], PMO.modules.data.timeOnArg[2], PMO.modules.data.timeOnArg[3], PMO.modules.data.timeOnArg[1], PMO.modules.data.timeOnArg[1], PMO.modules.data.timeOnArg[4])
     Game.GetTeleportationFacility():Teleport(character, position, orientation)
-    state.isPuppetTeleported = true
+    PMO.external.cron.After(0.25, function()
+        fakePuppet:SetIndividualTimeDilation(PMO.modules.data.timeOffArg[1], PMO.modules.data.timeOffArg[2], PMO.modules.data.timeOffArg[3], PMO.modules.data.timeOffArg[1], PMO.modules.data.timeOffArg[1], PMO.modules.data.timeOffArg[4])
+    end)
+end
+
+---@param sliderValue float
+local function SetTime(sliderValue)
+    local hour = math.floor(sliderValue / 60)
+    local minute = sliderValue % 60
+    local offset = (hour == 0) and (hour + 1) or (hour - 1)
+    Game.GetTimeSystem():SetGameTimeByHMS(hour, minute, 0)
+    PMO.external.cron.After(0.5, function()
+        -- Cycle time to clear out high exposure from time change
+        Game.GetTimeSystem():SetGameTimeByHMS(offset, minute, 0)
+        Game.GetTimeSystem():SetGameTimeByHMS(hour, minute, 0)
+    end)
 end
 
 -- CET Event Handling --
@@ -353,12 +386,23 @@ registerForEvent('onInit', function()
             AddMenuItems(this, 'lookAt', page)
             AddMenuItems(this, 'movement', page)
         end
+        if attributeKey == menuController.attributeKey.exposure then
+            AddMenuItems(this, 'world', page)
+        end
         wrappedMethod(label, attributeKey, page, isAdditional)
     end)
 
     Override('gameuiPhotoModeMenuController', 'OnShow',
     function(this, reversedUI, wrappedMethod)
         local result = wrappedMethod(reversedUI)
+
+        -- Store current time for resetting upon Photo Mode exit
+        local gameTime = Game.GetTimeSystem():GetGameTime()
+        state.time.hour = gameTime:Hours(gameTime)
+        state.time.minute = gameTime:Minutes(gameTime)
+
+        -- Setup default slider value for Set Time based on current time
+        local currentTime = ( state.time.hour * 60 + state.time.minute)
 
         -- Store persistent Menu Item data
         AssignMenuItems(this)
@@ -368,17 +412,18 @@ registerForEvent('onInit', function()
         SetupOptionSelector(menuController.menuItem.freezeAnim, this, false, localizable.optionSelectorValues.freezeAnim)
         SetupOptionSelector(menuController.menuItem.toggleMovementType, this, false, localizable.optionSelectorValues.toggleMovementType)
         SetupOptionSelector(menuController.menuItem.lockLookAtCamera, this, false, localizable.optionSelectorValues.lockLookAtCamera)
-        SetupScrollBar(menuController.menuItem.setHeadSuppress, this, false, 0.0, 0.0, 1.0, .01)
-        SetupScrollBar(menuController.menuItem.setHeadWeight, this, false, 0.0, 0.0, 1.0, .01)
-        SetupScrollBar(menuController.menuItem.setChestSuppress, this, false, 0.0, 0.0, 1.0, .01)
-        SetupScrollBar(menuController.menuItem.setChestWeight, this, false, 0.0, 0.0, 0.5, .005)
-        SetupScrollBar(menuController.menuItem.transitionSpeed, this, false, 70.0, 1.0, 140.0, 1.0)
-        SetupScrollBar(menuController.menuItem.rollAngle, this, true, 0.0, -180.0, 180.0, 1.0)
-        SetupScrollBar(menuController.menuItem.pitchAngle, this, true, 0.0, -180.0, 180.0, 1.0)
-        SetupScrollBar(menuController.menuItem.yawAngle, this, true, transform.orientation.yaw, -180.0, 180.0, 1.0)
-        SetupScrollBar(menuController.menuItem.xPos, this, true, 0.0, -10.0, 10.0, movementStep)
-        SetupScrollBar(menuController.menuItem.yPos, this, true, 0.0, -10.0, 10.0, movementStep)
-        SetupScrollBar(menuController.menuItem.zPos, this, true, 0.0, -10.0, 10.0, movementStep)
+        SetupScrollBar(menuController.menuItem.setHeadSuppress, this, false, 0.0, 0.0, 1.0, .01, true)
+        SetupScrollBar(menuController.menuItem.setHeadWeight, this, false, 0.0, 0.0, 1.0, .01, true)
+        SetupScrollBar(menuController.menuItem.setChestSuppress, this, false, 0.0, 0.0, 1.0, .01, true)
+        SetupScrollBar(menuController.menuItem.setChestWeight, this, false, 0.0, 0.0, 0.5, .005, true)
+        SetupScrollBar(menuController.menuItem.transitionSpeed, this, false, 70.0, 1.0, 140.0, 1.0, true)
+        SetupScrollBar(menuController.menuItem.rollAngle, this, true, 0.0, -180.0, 180.0, 1.0, true)
+        SetupScrollBar(menuController.menuItem.pitchAngle, this, true, 0.0, -180.0, 180.0, 1.0, true)
+        SetupScrollBar(menuController.menuItem.yawAngle, this, true, transform.orientation.yaw, -180.0, 180.0, 1.0, true)
+        SetupScrollBar(menuController.menuItem.xPos, this, true, 0.0, -10.0, 10.0, movementStep, true)
+        SetupScrollBar(menuController.menuItem.yPos, this, true, 0.0, -10.0, 10.0, movementStep, true)
+        SetupScrollBar(menuController.menuItem.zPos, this, true, 0.0, -10.0, 10.0, movementStep, true)
+        SetupScrollBar(menuController.menuItem.setTime, this, true, currentTime, 0.0, 1439, 5, true)
 
         -- Reset Depth of Field state checks
         state.dof.isFinalized = false
@@ -394,7 +439,10 @@ registerForEvent('onInit', function()
 
     Observe('gameuiPhotoModeMenuController', 'OnHide',
     function(this)
+        -- Deactivate locked Look At if it's still active
         GameOptions.SetFloat(PMO.modules.data.category[1], PMO.modules.data.key[1], 3.0)
+        -- Restore original game time
+        Game.GetTimeSystem():SetGameTimeByHMS(state.time.hour, state.time.minute, 0)
     end)
 
     Override("gameuiPhotoModeMenuController", "OnSetAttributeOptionEnabled",
@@ -520,6 +568,9 @@ registerForEvent('onInit', function()
             if attributeKey == menuController.attributeKey.yawAngle then
                 UpdateCharacterTransform(fakePuppet, transform, 'orientation.yaw', menuController.menuItem.yawAngle:GetSliderValue(), 'set')
             end
+            if attributeKey == menuController.attributeKey.setTime then
+                SetTime(menuController.menuItem.setTime:GetSliderValue())
+            end
         end
     end)
 
@@ -564,14 +615,6 @@ end)
 
 registerForEvent('onUpdate', function(deltaTime)
     PMO.external.cron.Update(deltaTime)
-
-    if state.isPuppetTeleported then
-        -- Unfreeze Photo Mode puppet after teleportation
-        state.isPuppetTeleported = false
-        PMO.external.cron.After(0.25, function()
-            fakePuppet:SetIndividualTimeDilation(PMO.modules.data.timeOffArg[1], PMO.modules.data.timeOffArg[2], PMO.modules.data.timeOffArg[3], PMO.modules.data.timeOffArg[1], PMO.modules.data.timeOffArg[1], PMO.modules.data.timeOffArg[4])
-        end)
-    end
 end)
 
 return PMO
