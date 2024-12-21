@@ -35,6 +35,7 @@ local menuController = {
         rollAngle = 9211,
         pitchAngle = 9212,
         yawAngle = 9213,
+        silverhandArm = 9214,
         setTime = 9501,
         -- Reference attributeKeys
         rotate = 7,
@@ -63,6 +64,7 @@ local menuController = {
         rollAngle = nil,
         pitchAngle = nil,
         yawAngle = nil,
+        silverhandArm = nil,
         lookAtCamera = nil,
         setTime = nil,
         initialized = false,
@@ -91,6 +93,9 @@ local localizable = {
             { key = 'pitchAngle', label = 'Pitch' },
             { key = 'yawAngle', label = 'Yaw' },
         },
+        silverhandArm = {
+            { key = 'silverhandArm', label = 'Equip Silverhand Arm' },
+        },
         world = {
             { key = 'setTime', label = 'Set Time of Day' },
         },
@@ -100,6 +105,7 @@ local localizable = {
         toggleMovementType = { 'Alternate', 'Default' },
         lockLookAtCamera = { 'Unlocked', 'Locked' },
         lookAtPreset = { 'Full Body', 'Head Only', 'Eyes Only'},
+        silverhandArm = { 'Off', 'On' },
     },
 }
 
@@ -113,7 +119,7 @@ local state = {
     time = {
         hour = nil,
         minute = nil,
-    }
+    },
 }
 
 local transform = {
@@ -121,6 +127,7 @@ local transform = {
     orientation = { roll = 0, pitch = 0, yaw = 0 },
 }
 
+local photoModePlayerEntityComponent = nil
 local fakePuppet = nil
 local movementStep = 0.1
 
@@ -385,6 +392,7 @@ registerForEvent('onInit', function()
         if attributeKey == menuController.attributeKey.rotate then
             AddMenuItems(this, 'lookAt', page)
             AddMenuItems(this, 'movement', page)
+            AddMenuItems(this, 'silverhandArm', page)
         end
         if attributeKey == menuController.attributeKey.exposure then
             AddMenuItems(this, 'world', page)
@@ -423,6 +431,7 @@ registerForEvent('onInit', function()
         SetupScrollBar(menuController.menuItem.xPos, this, true, 0.0, -10.0, 10.0, movementStep, true)
         SetupScrollBar(menuController.menuItem.yPos, this, true, 0.0, -10.0, 10.0, movementStep, true)
         SetupScrollBar(menuController.menuItem.zPos, this, true, 0.0, -10.0, 10.0, movementStep, true)
+        SetupOptionSelector(menuController.menuItem.silverhandArm, this, false, localizable.optionSelectorValues.silverhandArm)
         SetupScrollBar(menuController.menuItem.setTime, this, true, currentTime, 0.0, 1439, 5, true)
 
         -- Reset Depth of Field state checks
@@ -568,6 +577,15 @@ registerForEvent('onInit', function()
             if attributeKey == menuController.attributeKey.yawAngle then
                 UpdateCharacterTransform(fakePuppet, transform, 'orientation.yaw', menuController.menuItem.yawAngle:GetSliderValue(), 'set')
             end
+            if attributeKey == menuController.attributeKey.silverhandArm then
+                local label = menuController.menuItem.silverhandArm.OptionLabelRef:GetText()
+                if label == localizable.optionSelectorValues.silverhandArm[1] then
+                    local item = Game.GetTransactionSystem():GetItemInSlot(fakePuppet, TweakDBID.new(PMO.modules.data.equipment.silverhandArm[1]))
+                    Game.GetTransactionSystem():RemoveItem(fakePuppet, item:GetItemData():GetID(), 1)
+                elseif label == localizable.optionSelectorValues.silverhandArm[2] then
+                    photoModePlayerEntityComponent:PutOnFakeItemFromMainPuppet(ItemID.FromTDBID(PMO.modules.data.equipment.silverhandArm[2]))
+                end
+            end
             if attributeKey == menuController.attributeKey.setTime then
                 SetTime(menuController.menuItem.setTime:GetSliderValue())
             end
@@ -606,7 +624,8 @@ registerForEvent('onInit', function()
 
     Observe('PhotoModePlayerEntityComponent', 'ListAllCurrentItems',
     function(this)
-        -- Retrieve Photo Mode puppet for persistent access
+        -- Retrieve Photo Mode data for persistent access
+        photoModePlayerEntityComponent = this
         fakePuppet = this.fakePuppet
         -- Retrieve Photo Mode puppet's initial yaw for UI display value
         transform.orientation.yaw = fakePuppet:GetWorldYaw()
