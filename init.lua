@@ -35,7 +35,7 @@ local menuController = {
         rollAngle = 9211,
         pitchAngle = 9212,
         yawAngle = 9213,
-        silverhandArm = 9214,
+        equipment = 9214,
         setTime = 9501,
         -- Reference attributeKeys
         rotate = 7,
@@ -64,7 +64,7 @@ local menuController = {
         rollAngle = nil,
         pitchAngle = nil,
         yawAngle = nil,
-        silverhandArm = nil,
+        equipment = nil,
         lookAtCamera = nil,
         setTime = nil,
         initialized = false,
@@ -93,8 +93,8 @@ local localizable = {
             { key = 'pitchAngle', label = 'Pitch' },
             { key = 'yawAngle', label = 'Yaw' },
         },
-        silverhandArm = {
-            { key = 'silverhandArm', label = 'Equip Silverhand Arm' },
+        equipment = {
+            { key = 'equipment', label = 'Equipment' },
         },
         world = {
             { key = 'setTime', label = 'Set Time of Day' },
@@ -105,7 +105,6 @@ local localizable = {
         toggleMovementType = { 'Alternate', 'Default' },
         lockLookAtCamera = { 'Unlocked', 'Locked' },
         lookAtPreset = { 'Full Body', 'Head Only', 'Eyes Only'},
-        silverhandArm = { 'Off', 'On' },
     },
 }
 
@@ -115,6 +114,9 @@ local state = {
     dof = {
         isInitialized = false,
         isFinalized = false,
+    },
+    equipment = {
+        silverhandArm = false,
     },
     time = {
         hour = nil,
@@ -155,6 +157,34 @@ local function AssignMenuItems(photoModeController)
             menuController.menuItem[key] = photoModeController:GetMenuItem(attribute)
         end
     end
+end
+
+---@param menuItem PhotoModeMenuListItem
+---@param photoModeController gameuiPhotoModeMenuController
+---@param isVisible boolean
+---@param gridData table
+---@param elements integer
+---@param elementsInRow integer
+local function SetupGridSelector(menuItem, photoModeController, isVisible, gridData, elements, elementsInRow)
+    menuItem.photoModeController = photoModeController
+    menuItem:GetRootWidget():SetVisible(isVisible)
+    menuItem.GridRoot:SetVisible(true)
+    menuItem.ScrollBarRef:SetVisible(false)
+    menuItem.OptionSelectorRef:SetVisible(false)
+    menuItem:SetIsEnabled(true)
+    menuItem:SetupGridSelector(nil, elements, elementsInRow)
+    for i, item in ipairs(gridData) do
+        menuItem.GridSelector:SetGridButtonImage(
+            i - 1,
+            ResRef.FromString(item.atlasResource),
+            item.imagePart,
+            item.optionData
+        )
+        menuItem.GridSelector:SetGridButtonImageForceVisible(i - 1)
+    end
+    menuItem.GridSelector.SelectedIndex = -1
+    menuItem.GridSelector:UpdateSelectedState()
+    menuItem.GridSelector.SliderWidget:SetVisible(false)
 end
 
 ---@param menuItem PhotoModeMenuListItem
@@ -392,7 +422,7 @@ registerForEvent('onInit', function()
         if attributeKey == menuController.attributeKey.rotate then
             AddMenuItems(this, 'lookAt', page)
             AddMenuItems(this, 'movement', page)
-            AddMenuItems(this, 'silverhandArm', page)
+            AddMenuItems(this, 'equipment', page)
         end
         if attributeKey == menuController.attributeKey.exposure then
             AddMenuItems(this, 'world', page)
@@ -431,7 +461,7 @@ registerForEvent('onInit', function()
         SetupScrollBar(menuController.menuItem.xPos, this, true, 0.0, -10.0, 10.0, movementStep, true)
         SetupScrollBar(menuController.menuItem.yPos, this, true, 0.0, -10.0, 10.0, movementStep, true)
         SetupScrollBar(menuController.menuItem.zPos, this, true, 0.0, -10.0, 10.0, movementStep, true)
-        SetupOptionSelector(menuController.menuItem.silverhandArm, this, false, localizable.optionSelectorValues.silverhandArm)
+        SetupGridSelector(menuController.menuItem.equipment, this, true, PMO.modules.data.equipmentGridData, #PMO.modules.data.equipmentGridData, 2)
         SetupScrollBar(menuController.menuItem.setTime, this, true, currentTime, 0.0, 1439, 5, true)
 
         -- Reset Depth of Field state checks
@@ -453,6 +483,16 @@ registerForEvent('onInit', function()
         -- Restore original game time
         Game.GetTimeSystem():SetGameTimeByHMS(state.time.hour, state.time.minute, 0)
     end)
+
+    ObserveAfter("gameuiPhotoModeMenuController", "OnAttributeSelected",
+    function(this, attributeKey)
+        print(menuController.menuItem.equipment.GridSelector.SelectedIndex)
+        if attributeKey == menuController.attributeKey.equipment then
+            menuController.menuItem.equipment.GridSelector.SelectedIndex = 0
+            menuController.menuItem.equipment.GridSelector:UpdateSelectedState()
+        end
+    end)
+
 
     Override("gameuiPhotoModeMenuController", "OnSetAttributeOptionEnabled",
     function(this, attributeKey, enabled, wrappedMethod)
@@ -577,18 +617,22 @@ registerForEvent('onInit', function()
             if attributeKey == menuController.attributeKey.yawAngle then
                 UpdateCharacterTransform(fakePuppet, transform, 'orientation.yaw', menuController.menuItem.yawAngle:GetSliderValue(), 'set')
             end
-            if attributeKey == menuController.attributeKey.silverhandArm then
-                local label = menuController.menuItem.silverhandArm.OptionLabelRef:GetText()
-                if label == localizable.optionSelectorValues.silverhandArm[1] then
-                    local item = Game.GetTransactionSystem():GetItemInSlot(fakePuppet, TweakDBID.new(PMO.modules.data.equipment.silverhandArm[1]))
-                    Game.GetTransactionSystem():RemoveItem(fakePuppet, item:GetItemData():GetID(), 1)
-                elseif label == localizable.optionSelectorValues.silverhandArm[2] then
-                    photoModePlayerEntityComponent:PutOnFakeItemFromMainPuppet(ItemID.FromTDBID(PMO.modules.data.equipment.silverhandArm[2]))
-                end
-            end
             if attributeKey == menuController.attributeKey.setTime then
                 SetTime(menuController.menuItem.setTime:GetSliderValue())
             end
+        end
+    end)
+
+    ObserveAfter("PhotoModeMenuListItem", "GridElementAction",
+    function(this, elementIndex, buttonData)
+        if buttonData == 8000 then
+            if state.equipment.silverhandArm then
+                local item = Game.GetTransactionSystem():GetItemInSlot(fakePuppet, TweakDBID.new(PMO.modules.data.equipment.silverhandArm[1]))
+                Game.GetTransactionSystem():RemoveItem(fakePuppet, item:GetItemData():GetID(), 1)
+            else
+                photoModePlayerEntityComponent:PutOnFakeItemFromMainPuppet(ItemID.FromTDBID(PMO.modules.data.equipment.silverhandArm[2]))
+            end
+            state.equipment.silverhandArm = not state.equipment.silverhandArm
         end
     end)
 
