@@ -4,7 +4,7 @@ local PMO = {
         data = require('modules/data.lua'),
     },
     external = {
-        cron = require('external/Cron.lua')
+        cron = require('external/Cron.lua'),
     },
 }
 
@@ -117,6 +117,15 @@ local state = {
     },
     equipment = {
         silverhandArm = false,
+        headSlot = false,
+        faceSlot = false,
+        outerChestSlot = false,
+        innerChestSlot = false,
+        pantsSlot = false,
+        shoesSlot = false,
+        underwearTop = false,
+        underwearBottom = true,
+        armsCWSlot = false,
     },
     time = {
         hour = nil,
@@ -124,13 +133,28 @@ local state = {
     },
 }
 
+local outfit = {
+    silverhandArm = '',
+    headSlot = '',
+    faceSlot = '',
+    outerChestSlot = '',
+    innerChestSlot = '',
+    pantsSlot = '',
+    shoesSlot = '',
+    underwearTop = '',
+    underwearBottom = '',
+    armsCWSlot = '',
+}
+
 local transform = {
     position = { x = 0.0, y = 0.0, z = 0.0, w = 1 },
     orientation = { roll = 0, pitch = 0, yaw = 0 },
 }
 
+local transactionSystem = nil
 local photoModePlayerEntityComponent = nil
-local fakePuppet = nil
+local pmPuppet = nil
+local gender = nil
 local movementStep = 0.1
 
 -- Menu Controller Functions --
@@ -159,6 +183,33 @@ local function AssignMenuItems(photoModeController)
     end
 end
 
+local function SetupEquipmentData()
+    for _, slot in ipairs(PMO.modules.data.attachmentSlots) do
+        local success, itemName = pcall(function()
+            local item = transactionSystem:GetItemInSlot(pmPuppet, TweakDBID.new(slot))
+            if not item then
+                return nil
+            end
+
+            local line = tostring(item:GetItemData():GetID())
+            if not line then
+                return nil
+            end
+
+            -- Parse the line for the item name
+            return string.match(line, "%-%-%[%[%s*(%S.-%S)%s*%-%-%]%]")
+        end)
+
+        if success and itemName then
+            --print(slot, itemName)
+            -- To Do: Store in outfit table for toggle settings and toggle state to true
+        else
+            --print(slot, 'No item found')
+            -- To Do: Set outfit table to '' at this slot's index and toggle state to false
+        end
+    end
+end
+
 ---@param menuItem PhotoModeMenuListItem
 ---@param photoModeController gameuiPhotoModeMenuController
 ---@param isVisible boolean
@@ -173,7 +224,18 @@ local function SetupGridSelector(menuItem, photoModeController, isVisible, gridD
     menuItem.OptionSelectorRef:SetVisible(false)
     menuItem:SetIsEnabled(true)
     menuItem:SetupGridSelector(nil, elements, elementsInRow)
+
     for i, item in ipairs(gridData) do
+        -- Handle gender differences
+        if gender == 'Male' then
+            if item.optionData == 8006 then
+                goto continue
+            end
+            if item.optionData == 8007 then
+                item.atlasResource = PMO.modules.data.equipmentGridDataAlternate[1].atlasResource
+                item.imagePart = PMO.modules.data.equipmentGridDataAlternate[1].imagePart
+            end
+        end
         menuItem.GridSelector:SetGridButtonImage(
             i - 1,
             ResRef.FromString(item.atlasResource),
@@ -181,6 +243,7 @@ local function SetupGridSelector(menuItem, photoModeController, isVisible, gridD
             item.optionData
         )
         menuItem.GridSelector:SetGridButtonImageForceVisible(i - 1)
+        ::continue::
     end
     menuItem.GridSelector.SelectedIndex = -1
     menuItem.GridSelector:UpdateSelectedState()
@@ -318,11 +381,45 @@ local function UpdateCharacterTransform(character, transformTable, keyPath, valu
     local orientation = EulerAngles.new(transform.orientation.roll, transform.orientation.pitch, transform.orientation.yaw)
 
     -- Disable foot snap while Photo Mode puppet is being moved
-    fakePuppet:SetIndividualTimeDilation(PMO.modules.data.timeOnArg[1], PMO.modules.data.timeOnArg[2], PMO.modules.data.timeOnArg[3], PMO.modules.data.timeOnArg[1], PMO.modules.data.timeOnArg[1], PMO.modules.data.timeOnArg[4])
+    pmPuppet:SetIndividualTimeDilation(PMO.modules.data.timeOnArg[1], PMO.modules.data.timeOnArg[2], PMO.modules.data.timeOnArg[3], PMO.modules.data.timeOnArg[1], PMO.modules.data.timeOnArg[1], PMO.modules.data.timeOnArg[4])
     Game.GetTeleportationFacility():Teleport(character, position, orientation)
     PMO.external.cron.After(0.25, function()
-        fakePuppet:SetIndividualTimeDilation(PMO.modules.data.timeOffArg[1], PMO.modules.data.timeOffArg[2], PMO.modules.data.timeOffArg[3], PMO.modules.data.timeOffArg[1], PMO.modules.data.timeOffArg[1], PMO.modules.data.timeOffArg[4])
+        pmPuppet:SetIndividualTimeDilation(PMO.modules.data.timeOffArg[1], PMO.modules.data.timeOffArg[2], PMO.modules.data.timeOffArg[3], PMO.modules.data.timeOffArg[1], PMO.modules.data.timeOffArg[1], PMO.modules.data.timeOffArg[4])
     end)
+end
+
+---@param buttonData integer
+local function UpdateEquipmentStatus(buttonData)
+    for i, gridData in ipairs(PMO.modules.data.equipmentGridData) do
+        if buttonData == gridData.optionData then
+            local stateKey = PMO.modules.data.equipment.keys[i]
+            local isEquipped = state.equipment[stateKey]
+
+            if isEquipped then
+                transactionSystem:RemoveItemFromAnySlot(pmPuppet, ItemID.CreateQuery(PMO.modules.data.equipment[stateKey][2]))
+            else
+                if not transactionSystem:HasItem(Game.GetPlayer(), ItemID.CreateQuery(PMO.modules.data.equipment[stateKey][2])) then
+                    transactionSystem:GiveItem(Game.GetPlayer(), ItemID.CreateQuery(PMO.modules.data.equipment[stateKey][2]), 1)
+                end
+                photoModePlayerEntityComponent:PutOnFakeItemFromMainPuppet(ItemID.CreateQuery(PMO.modules.data.equipment[stateKey][2]))
+            end
+
+            state.equipment[stateKey] = not isEquipped
+
+            -- Auto-equip underwear items when shirt or pants are removed
+            if (buttonData - 1) == PMO.modules.data.equipmentGridData[4].optionData then
+                if not state.equipment.innerChestSlot and not state.equipment.underwearTop then
+                    UpdateEquipmentStatus(PMO.modules.data.equipmentGridData[8].optionData)
+                end
+            elseif (buttonData - 1) == PMO.modules.data.equipmentGridData[5].optionData then
+                if not state.equipment.pantsSlot and not state.equipment.underwearBottom then
+                    UpdateEquipmentStatus(PMO.modules.data.equipmentGridData[9].optionData)
+                end
+            end
+
+            break
+        end
+    end
 end
 
 ---@param sliderValue float
@@ -440,11 +537,15 @@ registerForEvent('onInit', function()
         state.time.minute = gameTime:Minutes(gameTime)
 
         -- Setup default slider value for Set Time based on current time
-        local currentTime = ( state.time.hour * 60 + state.time.minute)
+        local currentTime = (state.time.hour * 60 + state.time.minute)
 
         -- Store persistent Menu Item data
         AssignMenuItems(this)
         menuController.menuItem.lookAtCamera = this:GetMenuItem(menuController.attributeKey.lookAtCamera)
+
+        -- Store persistent character data
+        gender = string.gmatch(tostring(Game.GetPlayer():GetResolvedGenderName()), '%-%-%[%[%s*(%a+)%s*%-%-%]%]')()
+        transactionSystem = Game.GetTransactionSystem()
 
         -- Setup Menu Items
         SetupOptionSelector(menuController.menuItem.freezeAnim, this, false, localizable.optionSelectorValues.freezeAnim)
@@ -461,7 +562,7 @@ registerForEvent('onInit', function()
         SetupScrollBar(menuController.menuItem.xPos, this, true, 0.0, -10.0, 10.0, movementStep, true)
         SetupScrollBar(menuController.menuItem.yPos, this, true, 0.0, -10.0, 10.0, movementStep, true)
         SetupScrollBar(menuController.menuItem.zPos, this, true, 0.0, -10.0, 10.0, movementStep, true)
-        SetupGridSelector(menuController.menuItem.equipment, this, true, PMO.modules.data.equipmentGridData, #PMO.modules.data.equipmentGridData, 2)
+        SetupGridSelector(menuController.menuItem.equipment, this, true, PMO.modules.data.equipmentGridData, #PMO.modules.data.equipmentGridData, 5)
         SetupScrollBar(menuController.menuItem.setTime, this, true, currentTime, 0.0, 1439, 5, true)
 
         -- Reset Depth of Field state checks
@@ -486,7 +587,6 @@ registerForEvent('onInit', function()
 
     ObserveAfter("gameuiPhotoModeMenuController", "OnAttributeSelected",
     function(this, attributeKey)
-        print(menuController.menuItem.equipment.GridSelector.SelectedIndex)
         if attributeKey == menuController.attributeKey.equipment then
             menuController.menuItem.equipment.GridSelector.SelectedIndex = 0
             menuController.menuItem.equipment.GridSelector:UpdateSelectedState()
@@ -519,10 +619,9 @@ registerForEvent('onInit', function()
             if attributeKey == menuController.attributeKey.freezeAnim then
                 local label = menuController.menuItem.freezeAnim.OptionLabelRef:GetText()
                 if label == localizable.optionSelectorValues.freezeAnim[1] then
-                    fakePuppet:SetIndividualTimeDilation(PMO.modules.data.timeOffArg[1], PMO.modules.data.timeOffArg[2], PMO.modules.data.timeOffArg[3], PMO.modules.data.timeOffArg[1], PMO.modules.data.timeOffArg[1], PMO.modules.data.timeOffArg[4])
-
+                    pmPuppet:SetIndividualTimeDilation(PMO.modules.data.timeOffArg[1], PMO.modules.data.timeOffArg[2], PMO.modules.data.timeOffArg[3], PMO.modules.data.timeOffArg[1], PMO.modules.data.timeOffArg[1], PMO.modules.data.timeOffArg[4])
                 elseif label == localizable.optionSelectorValues.freezeAnim[2] then
-                    fakePuppet:SetIndividualTimeDilation(PMO.modules.data.timeOnArg[1], PMO.modules.data.timeOnArg[2], PMO.modules.data.timeOnArg[3], PMO.modules.data.timeOnArg[1], PMO.modules.data.timeOnArg[1], PMO.modules.data.timeOnArg[4])
+                    pmPuppet:SetIndividualTimeDilation(PMO.modules.data.timeOnArg[1], PMO.modules.data.timeOnArg[2], PMO.modules.data.timeOnArg[3], PMO.modules.data.timeOnArg[1], PMO.modules.data.timeOnArg[1], PMO.modules.data.timeOnArg[4])
                 end
             end
             -- If 'Set Pose Movement Type' is changed
@@ -598,24 +697,24 @@ registerForEvent('onInit', function()
             -- If new movement options are changed
             if attributeKey == menuController.attributeKey.xPos then
                 local offset = movementStep * menuController.menuItem.xPos.inputDirection
-                UpdateCharacterTransform(fakePuppet, transform, 'position.x', offset, 'increment')
+                UpdateCharacterTransform(pmPuppet, transform, 'position.x', offset, 'increment')
             end
             if attributeKey == menuController.attributeKey.yPos then
                 local offset = movementStep * menuController.menuItem.yPos.inputDirection
-                UpdateCharacterTransform(fakePuppet, transform, 'position.y', offset, 'increment')
+                UpdateCharacterTransform(pmPuppet, transform, 'position.y', offset, 'increment')
             end
             if attributeKey == menuController.attributeKey.zPos then
                 local offset = movementStep * menuController.menuItem.zPos.inputDirection
-                UpdateCharacterTransform(fakePuppet, transform, 'position.z', offset, 'increment')
+                UpdateCharacterTransform(pmPuppet, transform, 'position.z', offset, 'increment')
             end
             if attributeKey == menuController.attributeKey.rollAngle then
-                UpdateCharacterTransform(fakePuppet, transform, 'orientation.roll', menuController.menuItem.rollAngle:GetSliderValue(), 'set')
+                UpdateCharacterTransform(pmPuppet, transform, 'orientation.roll', menuController.menuItem.rollAngle:GetSliderValue(), 'set')
             end
             if attributeKey == menuController.attributeKey.pitchAngle then
-                UpdateCharacterTransform(fakePuppet, transform, 'orientation.pitch', menuController.menuItem.pitchAngle:GetSliderValue(), 'set')
+                UpdateCharacterTransform(pmPuppet, transform, 'orientation.pitch', menuController.menuItem.pitchAngle:GetSliderValue(), 'set')
             end
             if attributeKey == menuController.attributeKey.yawAngle then
-                UpdateCharacterTransform(fakePuppet, transform, 'orientation.yaw', menuController.menuItem.yawAngle:GetSliderValue(), 'set')
+                UpdateCharacterTransform(pmPuppet, transform, 'orientation.yaw', menuController.menuItem.yawAngle:GetSliderValue(), 'set')
             end
             if attributeKey == menuController.attributeKey.setTime then
                 SetTime(menuController.menuItem.setTime:GetSliderValue())
@@ -625,15 +724,7 @@ registerForEvent('onInit', function()
 
     ObserveAfter("PhotoModeMenuListItem", "GridElementAction",
     function(this, elementIndex, buttonData)
-        if buttonData == 8000 then
-            if state.equipment.silverhandArm then
-                local item = Game.GetTransactionSystem():GetItemInSlot(fakePuppet, TweakDBID.new(PMO.modules.data.equipment.silverhandArm[1]))
-                Game.GetTransactionSystem():RemoveItem(fakePuppet, item:GetItemData():GetID(), 1)
-            else
-                photoModePlayerEntityComponent:PutOnFakeItemFromMainPuppet(ItemID.FromTDBID(PMO.modules.data.equipment.silverhandArm[2]))
-            end
-            state.equipment.silverhandArm = not state.equipment.silverhandArm
-        end
+        UpdateEquipmentStatus(buttonData)
     end)
 
     ObserveAfter('gameuiPhotoModeMenuController', 'OnIntroAnimEnded',
@@ -643,6 +734,9 @@ registerForEvent('onInit', function()
         colMenuItem.OptionSelector:SetCurrIndex(0)
         this:OnAttributeUpdated(menuController.attributeKey.collision, 0, true)
         colMenuItem:OnSliderHandleReleased()
+
+        -- To Do: this function call is too early
+        --SetupEquipmentData()
 
         -- Revert Look At setting if active upon entering Photo Mode
         if menuController.menuItem.lookAtCamera:GetSelectedOptionIndex() == 1 then
@@ -670,9 +764,9 @@ registerForEvent('onInit', function()
     function(this)
         -- Retrieve Photo Mode data for persistent access
         photoModePlayerEntityComponent = this
-        fakePuppet = this.fakePuppet
+        pmPuppet = this.fakePuppet
         -- Retrieve Photo Mode puppet's initial yaw for UI display value
-        transform.orientation.yaw = fakePuppet:GetWorldYaw()
+        transform.orientation.yaw = this.fakePuppet:GetWorldYaw()
     end)
 end)
 
