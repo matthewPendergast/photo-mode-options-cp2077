@@ -37,6 +37,7 @@ local menuController = {
         yawAngle = 9213,
         equipment = 9214,
         setTime = 9501,
+        setWeather = 9502,
         -- Reference attributeKeys
         rotate = 7,
         leftRight = 8,
@@ -67,6 +68,7 @@ local menuController = {
         equipment = nil,
         lookAtCamera = nil,
         setTime = nil,
+        setWeather = nil,
         initialized = false,
     },
 }
@@ -98,6 +100,7 @@ local localizable = {
         },
         world = {
             { key = 'setTime', label = 'Set Time of Day' },
+            { key = 'setWeather', label = 'Set Weather' },
         },
     },
     optionSelectorValues = {
@@ -105,6 +108,10 @@ local localizable = {
         toggleMovementType = { 'Alternate', 'Default' },
         lockLookAtCamera = { 'Unlocked', 'Locked' },
         lookAtPreset = { 'Full Body', 'Head Only', 'Eyes Only'},
+        setWeather = {
+            'Cloudy', 'Fog', 'Heavy Clouds', 'Light Clouds', 'Pollution', 'Deep Blue', 'Light Rain', 'Squat Morning',
+            'Cloudy Morning', 'Rainy Night', 'Rain', 'Courier Clouds', 'Sandstorm', 'Sunny', 'Toxic Rain',
+        },
     },
 }
 
@@ -131,6 +138,7 @@ local state = {
         hour = nil,
         minute = nil,
     },
+    weather = ''
 }
 
 local outfit = {
@@ -460,6 +468,15 @@ local function SetTime(sliderValue)
     end)
 end
 
+---@param index integer
+local function UpdateWeather(index)
+    Game.GetWeatherSystem():SetWeather(PMO.modules.data.weatherPresets[index + 1], 0, 0)
+    Game.GetTimeSystem():UnsetTimeDilation(PMO.modules.data.timeOnArg[1])
+    PMO.external.cron.After(0.5, function()
+        Game.GetTimeSystem():SetTimeDilation(PMO.modules.data.timeOnArg[1], PMO.modules.data.timeOnArg[2])
+    end)
+end
+
 -- CET Event Handling --
 
 registerForEvent('onTweak', function()
@@ -556,10 +573,11 @@ registerForEvent('onInit', function()
     function(this, reversedUI, wrappedMethod)
         local result = wrappedMethod(reversedUI)
 
-        -- Store current time for resetting upon Photo Mode exit
+        -- Store current time and weather for resetting upon Photo Mode exit
         local gameTime = Game.GetTimeSystem():GetGameTime()
         state.time.hour = gameTime:Hours(gameTime)
         state.time.minute = gameTime:Minutes(gameTime)
+        state.weather = Game.GetWeatherSystem():GetWeatherState().name.value
 
         -- Setup default slider value for Set Time based on current time
         local currentTime = (state.time.hour * 60 + state.time.minute)
@@ -589,6 +607,7 @@ registerForEvent('onInit', function()
         SetupScrollBar(menuController.menuItem.zPos, this, true, 0.0, -10.0, 10.0, movementStep, true)
         SetupGridSelector(menuController.menuItem.equipment, this, true, PMO.modules.data.equipmentGridData, #PMO.modules.data.equipmentGridData, 5)
         SetupScrollBar(menuController.menuItem.setTime, this, true, currentTime, 0.0, 1439, 5, true)
+        SetupOptionSelector(menuController.menuItem.setWeather, this, false, localizable.optionSelectorValues.setWeather)
 
         -- Reset Depth of Field state checks
         state.dof.isFinalized = false
@@ -598,6 +617,13 @@ registerForEvent('onInit', function()
         SetLookAtPresetVisibility(false)
         this:GetChildWidgetByPath(PMO.modules.data.widgetPath[1]):SetHeight(1400.0)
 
+        -- Set default weather value for option selector
+        for i, value in ipairs(PMO.modules.data.weatherPresets) do
+            if value == state.weather then
+                menuController.menuItem.setWeather.OptionSelector:SetCurrIndex(i - 1)
+            end
+        end
+
         menuController.menuItem.initialized = true
         return result
     end)
@@ -606,8 +632,10 @@ registerForEvent('onInit', function()
     function(this)
         -- Deactivate locked Look At if it's still active
         GameOptions.SetFloat(PMO.modules.data.category[1], PMO.modules.data.key[1], 3.0)
-        -- Restore original game time
+        -- Restore original game time and weather
         Game.GetTimeSystem():SetGameTimeByHMS(state.time.hour, state.time.minute, 0)
+        Game.GetWeatherSystem():SetWeather(state.weather, 0, 0)
+        Game.GetTimeSystem():UnsetTimeDilation('')
     end)
 
     ObserveAfter('gameuiPhotoModeMenuController', 'OnAttributeSelected',
@@ -617,7 +645,6 @@ registerForEvent('onInit', function()
             menuController.menuItem.equipment.GridSelector:UpdateSelectedState()
         end
     end)
-
 
     Override('gameuiPhotoModeMenuController', 'OnSetAttributeOptionEnabled',
     function(this, attributeKey, enabled, wrappedMethod)
@@ -743,6 +770,9 @@ registerForEvent('onInit', function()
             end
             if attributeKey == menuController.attributeKey.setTime then
                 SetTime(menuController.menuItem.setTime:GetSliderValue())
+            end
+            if attributeKey == menuController.attributeKey.setWeather then
+                UpdateWeather(menuController.menuItem.setWeather.OptionSelector:GetCurrIndex())
             end
         end
     end)
