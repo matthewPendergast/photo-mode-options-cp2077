@@ -117,15 +117,15 @@ local state = {
     },
     equipment = {
         silverhandArm = false,
-        headSlot = false,
-        faceSlot = false,
-        outerChestSlot = false,
-        innerChestSlot = false,
-        pantsSlot = false,
-        shoesSlot = false,
+        head = false,
+        eyes = false,
+        torso = false,
+        chest = false,
+        pants = false,
+        shoes = false,
         underwearTop = false,
         underwearBottom = true,
-        armsCWSlot = false,
+        rightArm = false,
     },
     time = {
         hour = nil,
@@ -134,16 +134,16 @@ local state = {
 }
 
 local outfit = {
-    silverhandArm = '',
-    headSlot = '',
-    faceSlot = '',
-    outerChestSlot = '',
-    innerChestSlot = '',
-    pantsSlot = '',
-    shoesSlot = '',
-    underwearTop = '',
-    underwearBottom = '',
-    armsCWSlot = '',
+    ['silverhandArm'] = '',
+    ['head'] = '',
+    ['eyes'] = '',
+    ['torso'] = '',
+    ['chest'] = '',
+    ['legs'] = '',
+    ['feet'] = '',
+    ['underwearTop'] = '',
+    ['underwearBottom'] = '',
+    ['rightArm'] = '',
 }
 
 local transform = {
@@ -197,15 +197,23 @@ local function SetupEquipmentData()
             end
 
             -- Parse the line for the item name
-            return string.match(line, "%-%-%[%[%s*(%S.-%S)%s*%-%-%]%]")
+            return string.match(line, '%-%-%[%[%s*(%S.-%S)%s*%-%-%]%]')
         end)
 
+        -- Parse the slot name for key matching
+        local slotKey = string.match(slot, 'AttachmentSlots%.(%w+)')
+        slotKey = slotKey:sub(1, 1):lower() .. slotKey:sub(2)
+
         if success and itemName then
-            --print(slot, itemName)
-            -- To Do: Store in outfit table for toggle settings and toggle state to true
+            outfit[slotKey] = itemName
+            state.equipment[slotKey] = true
+            -- Handle arm cyberware as holstered by default
+            if slotKey == 'rightArm' then
+                state.equipment[slotKey] = false
+            end
         else
-            --print(slot, 'No item found')
-            -- To Do: Set outfit table to '' at this slot's index and toggle state to false
+            outfit[slotKey] = ''
+            state.equipment[slotKey] = false
         end
     end
 end
@@ -394,29 +402,46 @@ local function UpdateEquipmentStatus(buttonData)
         if buttonData == gridData.optionData then
             local stateKey = PMO.modules.data.equipment.keys[i]
             local isEquipped = state.equipment[stateKey]
+            local itemID = ItemID.CreateQuery(PMO.modules.data.equipment[stateKey][2])
+            local slot = Game.GetScriptableSystemsContainer():Get(PMO.modules.data.scriptable[1]).GetPlacementSlot(itemID)
+            local slotName = string.match(tostring(slot), 'AttachmentSlots%.(%w+)')
 
             if isEquipped then
-                transactionSystem:RemoveItemFromAnySlot(pmPuppet, ItemID.CreateQuery(PMO.modules.data.equipment[stateKey][2]))
+                transactionSystem:RemoveItemFromAnySlot(pmPuppet, itemID)
+                -- To Do: intended to fix issue with head and leg items auto-hiding items for eyes and underwearBottom slots
+                -- Not yet working as intended
+                -- if slotName == 'Head' or slotName == 'Legs' then
+                --     Game.UnequipItem(slotName, 0)
+                -- end
             else
-                if not transactionSystem:HasItem(Game.GetPlayer(), ItemID.CreateQuery(PMO.modules.data.equipment[stateKey][2])) then
-                    transactionSystem:GiveItem(Game.GetPlayer(), ItemID.CreateQuery(PMO.modules.data.equipment[stateKey][2]), 1)
+                if not transactionSystem:HasItem(pmPuppet, itemID) then
+                    transactionSystem:GiveItem(pmPuppet, itemID, 1)
                 end
-                photoModePlayerEntityComponent:PutOnFakeItemFromMainPuppet(ItemID.CreateQuery(PMO.modules.data.equipment[stateKey][2]))
+                transactionSystem:AddItemToSlot(pmPuppet, slot, itemID)
             end
 
             state.equipment[stateKey] = not isEquipped
 
             -- Auto-equip underwear items when shirt or pants are removed
-            if (buttonData - 1) == PMO.modules.data.equipmentGridData[4].optionData then
-                if not state.equipment.innerChestSlot and not state.equipment.underwearTop then
+            if buttonData == PMO.modules.data.equipmentGridData[5].optionData then
+                if not state.equipment.chestSlot and not state.equipment.underwearTop then
                     UpdateEquipmentStatus(PMO.modules.data.equipmentGridData[8].optionData)
                 end
-            elseif (buttonData - 1) == PMO.modules.data.equipmentGridData[5].optionData then
+            elseif buttonData == PMO.modules.data.equipmentGridData[6].optionData then
                 if not state.equipment.pantsSlot and not state.equipment.underwearBottom then
                     UpdateEquipmentStatus(PMO.modules.data.equipmentGridData[9].optionData)
                 end
             end
 
+            -- Handle cyberarms
+            if buttonData == PMO.modules.data.equipmentGridData[10].optionData then
+                if state.equipment.rightArm then
+                    transactionSystem:RemoveItemFromAnySlot(pmPuppet, ItemID.CreateQuery(outfit['rightArm']))
+                else
+                    photoModePlayerEntityComponent:UnequipCyberwareArms()
+                    photoModePlayerEntityComponent:EquipHolsteredArms()
+                end
+            end
             break
         end
     end
@@ -585,7 +610,7 @@ registerForEvent('onInit', function()
         Game.GetTimeSystem():SetGameTimeByHMS(state.time.hour, state.time.minute, 0)
     end)
 
-    ObserveAfter("gameuiPhotoModeMenuController", "OnAttributeSelected",
+    ObserveAfter('gameuiPhotoModeMenuController', 'OnAttributeSelected',
     function(this, attributeKey)
         if attributeKey == menuController.attributeKey.equipment then
             menuController.menuItem.equipment.GridSelector.SelectedIndex = 0
@@ -594,7 +619,7 @@ registerForEvent('onInit', function()
     end)
 
 
-    Override("gameuiPhotoModeMenuController", "OnSetAttributeOptionEnabled",
+    Override('gameuiPhotoModeMenuController', 'OnSetAttributeOptionEnabled',
     function(this, attributeKey, enabled, wrappedMethod)
         if not state.isDefaultMovementScheme then
             local positionKeys = {
@@ -722,7 +747,7 @@ registerForEvent('onInit', function()
         end
     end)
 
-    ObserveAfter("PhotoModeMenuListItem", "GridElementAction",
+    ObserveAfter('PhotoModeMenuListItem', 'GridElementAction',
     function(this, elementIndex, buttonData)
         UpdateEquipmentStatus(buttonData)
     end)
@@ -736,7 +761,7 @@ registerForEvent('onInit', function()
         colMenuItem:OnSliderHandleReleased()
 
         -- To Do: this function call is too early
-        --SetupEquipmentData()
+        SetupEquipmentData()
 
         -- Revert Look At setting if active upon entering Photo Mode
         if menuController.menuItem.lookAtCamera:GetSelectedOptionIndex() == 1 then
