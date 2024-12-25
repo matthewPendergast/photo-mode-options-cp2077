@@ -35,9 +35,10 @@ local menuController = {
         rollAngle = 9211,
         pitchAngle = 9212,
         yawAngle = 9213,
-        equipmentToggle = 9214,
+        equipmentGrid = 9214,
         equipmentItem = 9215,
         equipmentAppearance = 9216,
+        equipmentToggle = 9217,
         setTime = 9501,
         setWeather = 9502,
         -- Reference attributeKeys
@@ -67,9 +68,10 @@ local menuController = {
         rollAngle = nil,
         pitchAngle = nil,
         yawAngle = nil,
-        equipmentToggle = nil,
+        equipmentGrid = nil,
         equipmentItem = nil,
         equipmentAppearance = nil,
+        equipmentToggle = nil,
         lookAtCamera = nil,
         setTime = nil,
         setWeather = nil,
@@ -100,9 +102,10 @@ local localizable = {
             { key = 'yawAngle', label = 'Yaw' },
         },
         equipment = {
-            { key = 'equipmentToggle', label = 'Equipment Toggle' },
+            { key = 'equipmentGrid', label = 'Equipment Toggle' },
             { key = 'equipmentItem', label = 'Switch Equipment Item' },
             { key = 'equipmentAppearance', label = 'Set Equipment Appearance' },
+            { key = 'equipmentToggle', label = 'Set Equipment Visibility' },
         },
         world = {
             { key = 'setTime', label = 'Set Time of Day' },
@@ -115,6 +118,7 @@ local localizable = {
         lockLookAtCamera = { 'Unlocked', 'Locked' },
         equipmentItem = { '' },
         equipmentAppearance = { '' },
+        equipmentToggle = { 'On', 'Off' },
         setWeather = {
             'Cloudy', 'Fog', 'Heavy Clouds', 'Light Clouds', 'Pollution', 'Deep Blue', 'Light Rain', 'Squat Morning',
             'Cloudy Morning', 'Rainy Night', 'Rain', 'Courier Clouds', 'Sandstorm', 'Sunny', 'Toxic Rain',
@@ -192,7 +196,7 @@ end
 
 ---@param photoModeController gameuiPhotoModeMenuController
 local function AssignMenuItems(photoModeController)
-    menuController.menuItem = {} -- Clear or initialize the table
+    menuController.menuItem = {}
     for _, items in pairs(localizable.menuItem) do
         for _, item in ipairs(items) do
             local key = item.key
@@ -622,6 +626,9 @@ registerForEvent('onInit', function()
                     table.insert(componentData[index].appearances, appearance.name.value)
                 end
                 table.insert(componentData.paths, parsedPath)
+                -- To Do: reduce to only what is needed for option selector handling, then use .component to access the rest
+                componentData[index].component = component
+                componentData[index].isEnabled = component.isEnabled
                 componentData[index].mesh = component.mesh
                 componentData[index].path = path
                 componentData[index].parsedPath = parsedPath
@@ -649,9 +656,10 @@ registerForEvent('onInit', function()
         SetupScrollBar(menuController.menuItem.xPos, this, true, 0.0, -10.0, 10.0, movementStep, true)
         SetupScrollBar(menuController.menuItem.yPos, this, true, 0.0, -10.0, 10.0, movementStep, true)
         SetupScrollBar(menuController.menuItem.zPos, this, true, 0.0, -10.0, 10.0, movementStep, true)
-        SetupGridSelector(menuController.menuItem.equipmentToggle, this, true, PMO.modules.data.equipmentGridData, #PMO.modules.data.equipmentGridData, 5)
+        SetupGridSelector(menuController.menuItem.equipmentGrid, this, true, PMO.modules.data.equipmentGridData, #PMO.modules.data.equipmentGridData, 5)
         SetupOptionSelector(menuController.menuItem.equipmentItem, this, false, localizable.optionSelectorValues.equipmentItem)
         SetupOptionSelector(menuController.menuItem.equipmentAppearance, this, false, localizable.optionSelectorValues.equipmentAppearance)
+        SetupOptionSelector(menuController.menuItem.equipmentToggle, this, false, localizable.optionSelectorValues.equipmentToggle)
         SetupScrollBar(menuController.menuItem.setTime, this, true, currentTime, 0.0, 1439, 5, true)
         SetupOptionSelector(menuController.menuItem.setWeather, this, false, localizable.optionSelectorValues.setWeather)
 
@@ -661,7 +669,7 @@ registerForEvent('onInit', function()
 
         -- Setup UI
         SetLookAtPresetVisibility(false)
-        this:GetChildWidgetByPath(PMO.modules.data.widgetPath[1]):SetHeight(1400.0)
+        this:GetChildWidgetByPath(PMO.modules.data.widgetPath[1]):SetHeight(1500.0)
 
         -- Set default weather value for option selector
         for i, value in ipairs(PMO.modules.data.weatherPresets) do
@@ -743,7 +751,6 @@ registerForEvent('onInit', function()
                 menuController.menuItem.lookAtCamera.OptionSelector:SetCurrIndex(attributeValue)
                 if attributeValue == 1 then
                     SetLookAtPresetVisibility(true)
-                    this:GetChildWidgetByPath(PMO.modules.data.widgetPath[1]):SetHeight(1400.0)
                 elseif attributeValue == 0 then
                     SetLookAtPresetVisibility(false)
                     this:GetChildWidgetByPath(PMO.modules.data.widgetPath[1]):SetHeight(1400.0)
@@ -813,8 +820,14 @@ registerForEvent('onInit', function()
                 for _, label in ipairs(componentData[index + 1].appearances) do
                     table.insert(values, label)
                 end
+
+                -- To Do: update both option selectors to be accurate (not default)
                 menuController.menuItem.equipmentAppearance.OptionSelector.values = values
                 menuController.menuItem.equipmentAppearance.OptionSelector:SetCurrIndex(0)
+                local toggleIndex = (componentData[index + 1].isEnabled and 0 or 1)
+                    -- ^ not working as intended because indexing isn't set up for option selector
+                    -- need to rework how these are setup so they have proper indexing
+                menuController.menuItem.equipmentToggle.OptionSelector:SetCurrIndex(toggleIndex)
             end
             if attributeKey == menuController.attributeKey.equipmentAppearance then
                 local itemIndex = menuController.menuItem.equipmentItem.OptionSelector:GetCurrIndex()
@@ -827,6 +840,14 @@ registerForEvent('onInit', function()
                     end
                 end
             end
+            if attributeKey == menuController.attributeKey.equipmentToggle then
+                local itemIndex = menuController.menuItem.equipmentItem.OptionSelector:GetCurrIndex()
+                local label = menuController.menuItem.equipmentToggle.OptionLabelRef:GetText()
+                local toggle = (label == 'On') -- Change once option selector is reworked, to account for localization
+                componentData[itemIndex + 1].component.isEnabled = toggle
+                componentData[itemIndex + 1].component:RefreshAppearance()
+            end
+            -- If time or weather options are changed
             if attributeKey == menuController.attributeKey.setTime then
                 SetTime(menuController.menuItem.setTime:GetSliderValue())
             end
