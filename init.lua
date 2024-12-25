@@ -36,6 +36,7 @@ local menuController = {
         pitchAngle = 9212,
         yawAngle = 9213,
         equipment = 9214,
+        equipmentAppearance = 9215,
         setTime = 9501,
         setWeather = 9502,
         -- Reference attributeKeys
@@ -66,6 +67,7 @@ local menuController = {
         pitchAngle = nil,
         yawAngle = nil,
         equipment = nil,
+        equipmentAppearance = nil,
         lookAtCamera = nil,
         setTime = nil,
         setWeather = nil,
@@ -97,6 +99,7 @@ local localizable = {
         },
         equipment = {
             { key = 'equipment', label = 'Equipment' },
+            { key = 'equipmentAppearance', label = 'Set Equipment Appearance' },
         },
         world = {
             { key = 'setTime', label = 'Set Time of Day' },
@@ -107,7 +110,9 @@ local localizable = {
         freezeAnim = { 'Off', 'On' },
         toggleMovementType = { 'Alternate', 'Default' },
         lockLookAtCamera = { 'Unlocked', 'Locked' },
-        lookAtPreset = { 'Full Body', 'Head Only', 'Eyes Only'},
+        equipmentAppearance = {
+            'default', 'black_magenta',
+        },
         setWeather = {
             'Cloudy', 'Fog', 'Heavy Clouds', 'Light Clouds', 'Pollution', 'Deep Blue', 'Light Rain', 'Squat Morning',
             'Cloudy Morning', 'Rainy Night', 'Rain', 'Courier Clouds', 'Sandstorm', 'Sunny', 'Toxic Rain',
@@ -587,7 +592,7 @@ registerForEvent('onInit', function()
         menuController.menuItem.lookAtCamera = this:GetMenuItem(menuController.attributeKey.lookAtCamera)
 
         -- Store persistent character data
-        gender = string.gmatch(tostring(Game.GetPlayer():GetResolvedGenderName()), '%-%-%[%[%s*(%a+)%s*%-%-%]%]')()
+        gender = Game.GetPlayer():GetResolvedGenderName().value
         transactionSystem = Game.GetTransactionSystem()
 
         -- Setup Menu Items
@@ -606,6 +611,7 @@ registerForEvent('onInit', function()
         SetupScrollBar(menuController.menuItem.yPos, this, true, 0.0, -10.0, 10.0, movementStep, true)
         SetupScrollBar(menuController.menuItem.zPos, this, true, 0.0, -10.0, 10.0, movementStep, true)
         SetupGridSelector(menuController.menuItem.equipment, this, true, PMO.modules.data.equipmentGridData, #PMO.modules.data.equipmentGridData, 5)
+        SetupOptionSelector(menuController.menuItem.equipmentAppearance, this, false, localizable.optionSelectorValues.equipmentAppearance)
         SetupScrollBar(menuController.menuItem.setTime, this, true, currentTime, 0.0, 1439, 5, true)
         SetupOptionSelector(menuController.menuItem.setWeather, this, false, localizable.optionSelectorValues.setWeather)
 
@@ -767,6 +773,21 @@ registerForEvent('onInit', function()
             end
             if attributeKey == menuController.attributeKey.yawAngle then
                 UpdateCharacterTransform(pmPuppet, transform, 'orientation.yaw', menuController.menuItem.yawAngle:GetSliderValue(), 'set')
+            end
+            if attributeKey == menuController.attributeKey.equipmentAppearance then
+                -- To Do: index currently unused, will need for later implementation
+                local index = menuController.menuItem.equipmentAppearance.OptionSelector:GetCurrIndex()
+                local components = pmPuppet:GetComponents()
+                for _, component in ipairs(components) do
+                    local value = component:GetClassName().value
+                    if value == 'entGarmentSkinnedMeshComponent' then
+                        if component:GetName().value == PMO.modules.data.equipment['underwearBottom'][3] then
+                            -- To Do: retrieve all appearances for item, set meshAppearance based on index
+                            component.meshAppearance = menuController.menuItem.equipmentAppearance.OptionLabelRef:GetText()
+                            component:LoadAppearance()
+                        end
+                    end
+                end
             end
             if attributeKey == menuController.attributeKey.setTime then
                 SetTime(menuController.menuItem.setTime:GetSliderValue())
