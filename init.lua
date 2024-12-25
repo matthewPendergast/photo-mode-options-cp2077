@@ -35,8 +35,9 @@ local menuController = {
         rollAngle = 9211,
         pitchAngle = 9212,
         yawAngle = 9213,
-        equipment = 9214,
-        equipmentAppearance = 9215,
+        equipmentToggle = 9214,
+        equipmentItem = 9215,
+        equipmentAppearance = 9216,
         setTime = 9501,
         setWeather = 9502,
         -- Reference attributeKeys
@@ -66,7 +67,8 @@ local menuController = {
         rollAngle = nil,
         pitchAngle = nil,
         yawAngle = nil,
-        equipment = nil,
+        equipmentToggle = nil,
+        equipmentItem = nil,
         equipmentAppearance = nil,
         lookAtCamera = nil,
         setTime = nil,
@@ -98,7 +100,8 @@ local localizable = {
             { key = 'yawAngle', label = 'Yaw' },
         },
         equipment = {
-            { key = 'equipment', label = 'Equipment' },
+            { key = 'equipmentToggle', label = 'Equipment Toggle' },
+            { key = 'equipmentItem', label = 'Switch Equipment Item' },
             { key = 'equipmentAppearance', label = 'Set Equipment Appearance' },
         },
         world = {
@@ -110,9 +113,8 @@ local localizable = {
         freezeAnim = { 'Off', 'On' },
         toggleMovementType = { 'Alternate', 'Default' },
         lockLookAtCamera = { 'Unlocked', 'Locked' },
-        equipmentAppearance = {
-            'default', 'black_magenta',
-        },
+        equipmentItem = { '' },
+        equipmentAppearance = { '' },
         setWeather = {
             'Cloudy', 'Fog', 'Heavy Clouds', 'Light Clouds', 'Pollution', 'Deep Blue', 'Light Rain', 'Squat Morning',
             'Cloudy Morning', 'Rainy Night', 'Rain', 'Courier Clouds', 'Sandstorm', 'Sunny', 'Toxic Rain',
@@ -159,6 +161,8 @@ local outfit = {
     ['rightArm'] = '',
 }
 
+local componentData = {}
+
 local transform = {
     position = { x = 0.0, y = 0.0, z = 0.0, w = 1 },
     orientation = { roll = 0, pitch = 0, yaw = 0 },
@@ -166,6 +170,8 @@ local transform = {
 
 local transactionSystem = nil
 local photoModePlayerEntityComponent = nil
+local mainPuppet = nil
+local currentPuppet = nil
 local pmPuppet = nil
 local gender = nil
 local movementStep = 0.1
@@ -595,6 +601,39 @@ registerForEvent('onInit', function()
         gender = Game.GetPlayer():GetResolvedGenderName().value
         transactionSystem = Game.GetTransactionSystem()
 
+        -- Retrieve character component data
+        componentData = {}
+        componentData.paths = {}
+        local depot = GetGameInstance().GetResourceDepot()
+        local components = pmPuppet:GetComponents()
+        local index = 0 -- external indexing necessary, otherwise table will have inconsistent index values
+        for _, component in ipairs(components) do
+            -- To Do: include body and makeup options if found
+            local componentClass = component:GetClassName().value
+            if componentClass == PMO.modules.data.componentClass[1] then
+                index = index + 1
+                componentData[index] = {}
+                componentData[index].appearances = {}
+                local resource = depot:LoadResource(component.mesh)
+                local appearances = resource:GetResource().appearances
+                local path = resource:GetPath():ToString()
+                local parsedPath = path:match('([^\\]+)%.mesh$')
+                for _, appearance in ipairs(appearances) do
+                    table.insert(componentData[index].appearances, appearance.name.value)
+                end
+                table.insert(componentData.paths, parsedPath)
+                componentData[index].mesh = component.mesh
+                componentData[index].path = path
+                componentData[index].parsedPath = parsedPath
+                componentData[index].compPath = component:GetName().value
+                componentData[index].meshAppearance = component.meshAppearance.value
+            end
+        end
+
+        -- Setup initial Equipment Menu Items option selector values
+        localizable.optionSelectorValues.equipmentItem = componentData.paths
+        localizable.optionSelectorValues.equipmentAppearance = componentData[1].appearances
+
         -- Setup Menu Items
         SetupOptionSelector(menuController.menuItem.freezeAnim, this, false, localizable.optionSelectorValues.freezeAnim)
         SetupOptionSelector(menuController.menuItem.toggleMovementType, this, false, localizable.optionSelectorValues.toggleMovementType)
@@ -610,7 +649,8 @@ registerForEvent('onInit', function()
         SetupScrollBar(menuController.menuItem.xPos, this, true, 0.0, -10.0, 10.0, movementStep, true)
         SetupScrollBar(menuController.menuItem.yPos, this, true, 0.0, -10.0, 10.0, movementStep, true)
         SetupScrollBar(menuController.menuItem.zPos, this, true, 0.0, -10.0, 10.0, movementStep, true)
-        SetupGridSelector(menuController.menuItem.equipment, this, true, PMO.modules.data.equipmentGridData, #PMO.modules.data.equipmentGridData, 5)
+        SetupGridSelector(menuController.menuItem.equipmentToggle, this, true, PMO.modules.data.equipmentGridData, #PMO.modules.data.equipmentGridData, 5)
+        SetupOptionSelector(menuController.menuItem.equipmentItem, this, false, localizable.optionSelectorValues.equipmentItem)
         SetupOptionSelector(menuController.menuItem.equipmentAppearance, this, false, localizable.optionSelectorValues.equipmentAppearance)
         SetupScrollBar(menuController.menuItem.setTime, this, true, currentTime, 0.0, 1439, 5, true)
         SetupOptionSelector(menuController.menuItem.setWeather, this, false, localizable.optionSelectorValues.setWeather)
@@ -642,14 +682,6 @@ registerForEvent('onInit', function()
         Game.GetTimeSystem():SetGameTimeByHMS(state.time.hour, state.time.minute, 0)
         Game.GetWeatherSystem():SetWeather(state.weather, 0, 0)
         Game.GetTimeSystem():UnsetTimeDilation('')
-    end)
-
-    ObserveAfter('gameuiPhotoModeMenuController', 'OnAttributeSelected',
-    function(this, attributeKey)
-        if attributeKey == menuController.attributeKey.equipment then
-            menuController.menuItem.equipment.GridSelector.SelectedIndex = 0
-            menuController.menuItem.equipment.GridSelector:UpdateSelectedState()
-        end
     end)
 
     Override('gameuiPhotoModeMenuController', 'OnSetAttributeOptionEnabled',
@@ -774,18 +806,24 @@ registerForEvent('onInit', function()
             if attributeKey == menuController.attributeKey.yawAngle then
                 UpdateCharacterTransform(pmPuppet, transform, 'orientation.yaw', menuController.menuItem.yawAngle:GetSliderValue(), 'set')
             end
+            -- If Equipment options are changed
+            if attributeKey == menuController.attributeKey.equipmentItem then
+                local values = {}
+                local index = menuController.menuItem.equipmentItem.OptionSelector:GetCurrIndex()
+                for _, label in ipairs(componentData[index + 1].appearances) do
+                    table.insert(values, label)
+                end
+                menuController.menuItem.equipmentAppearance.OptionSelector.values = values
+                menuController.menuItem.equipmentAppearance.OptionSelector:SetCurrIndex(0)
+            end
             if attributeKey == menuController.attributeKey.equipmentAppearance then
-                -- To Do: index currently unused, will need for later implementation
-                local index = menuController.menuItem.equipmentAppearance.OptionSelector:GetCurrIndex()
+                local itemIndex = menuController.menuItem.equipmentItem.OptionSelector:GetCurrIndex()
+                local appIndex = menuController.menuItem.equipmentAppearance.OptionSelector:GetCurrIndex()
                 local components = pmPuppet:GetComponents()
                 for _, component in ipairs(components) do
-                    local value = component:GetClassName().value
-                    if value == 'entGarmentSkinnedMeshComponent' then
-                        if component:GetName().value == PMO.modules.data.equipment['underwearBottom'][3] then
-                            -- To Do: retrieve all appearances for item, set meshAppearance based on index
-                            component.meshAppearance = menuController.menuItem.equipmentAppearance.OptionLabelRef:GetText()
-                            component:LoadAppearance()
-                        end
+                    if component:GetName().value == componentData[itemIndex + 1].compPath then
+                        component.meshAppearance = componentData[itemIndex + 1].appearances[appIndex + 1]
+                        component:LoadAppearance()
                     end
                 end
             end
@@ -841,6 +879,8 @@ registerForEvent('onInit', function()
         -- Retrieve Photo Mode data for persistent access
         photoModePlayerEntityComponent = this
         pmPuppet = this.fakePuppet
+        mainPuppet = this.mainPuppet
+        currentPuppet = this.currentPuppet
         -- Retrieve Photo Mode puppet's initial yaw for UI display value
         transform.orientation.yaw = this.fakePuppet:GetWorldYaw()
     end)
